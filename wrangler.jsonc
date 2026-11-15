@@ -34,11 +34,11 @@
 
   "vars": {
     // e.g. https://your-team.cloudflareaccess.com
-    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_TEAM_DOMAIN": "https://phonglab.cloudflareaccess.com",
     // The Access application's "Application Audience (AUD) Tag"
-    "ACCESS_AUD": "",
+    "ACCESS_AUD": "54b88410fc116be95cc305db075d3a2b5dce381edf6a8618a2dc030f7160ccd6",
     // Optional second lock on top of the Access policy: emails or "@domain", comma-separated.
-    "ALLOWED_EMAILS": "",
+    // Set as a Secret in the Cloudflare dashboard instead, because this repo is public.
     // Where to look for new releases ("owner/repo"). Use your fork, or "off" to disable.
     "UPDATE_CHECK_REPO": "homielab/noteflare"
   },
