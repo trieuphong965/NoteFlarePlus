@@ -1,24 +1,32 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { en, type MessageKey } from './en'
 import { vi } from './vi'
+import { ja } from './ja'
 
 export type { MessageKey }
-export type Lang = 'en' | 'vi'
+export type Lang = 'en' | 'ja' | 'vi'
 export const LANGS: { code: Lang; name: string }[] = [
   { code: 'en', name: 'English' },
+  { code: 'ja', name: '日本語' },
   { code: 'vi', name: 'Tiếng Việt' },
 ]
 
-const dicts: Record<Lang, Record<MessageKey, string>> = { en, vi }
+const dicts: Record<Lang, Record<MessageKey, string>> = { en, ja, vi }
+const isLang = (l: unknown): l is Lang => l === 'en' || l === 'ja' || l === 'vi'
 
 function readLang(): Lang {
   try {
     const saved = localStorage.getItem('lang')
-    if (saved === 'en' || saved === 'vi') return saved
+    if (isLang(saved)) return saved
   } catch {
     /* ignore */
   }
-  return 'en' // English by default
+  // First visit: follow the browser, English otherwise.
+  for (const l of typeof navigator === 'undefined' ? [] : navigator.languages ?? [navigator.language]) {
+    const code = l.slice(0, 2).toLowerCase()
+    if (isLang(code)) return code
+  }
+  return 'en'
 }
 
 let current: Lang = readLang()
@@ -33,7 +41,7 @@ export function t(key: MessageKey, vars?: Record<string, string | number>): stri
   return s
 }
 
-export const dateLocale = () => (current === 'vi' ? 'vi-VN' : 'en-US')
+export const dateLocale = () => ({ en: 'en-US', ja: 'ja-JP', vi: 'vi-VN' })[current]
 
 interface I18nState {
   lang: Lang

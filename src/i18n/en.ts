@@ -337,7 +337,7 @@ export const en = {
   "kt.colName": "Task",
   "kt.colOwner": "Owner",
   "kt.colProgress": "Progress",
-  "kt.empty": "No tasks yet. Type a task name above and press Enter, then drag its bar to set the dates.",
+  "kt.empty": "Add your tasks to track plan against actual at a glance. Everything is encrypted on this device.",
   "kt.plan": "Plan",
   "kt.actual": "Actual",
   "kt.progress": "Progress",
@@ -363,6 +363,10 @@ export const en = {
   "kt.collapse": "Collapse",
   "kt.expand": "Expand",
   "kt.search": "Search tasks",
+  "kt.emptyButton": "Add your first task",
+  "kt.emptySearch": "No tasks contain “{q}”.",
+  "kt.results": "{n} tasks",
+  "kt.weekdays": "Su,Mo,Tu,We,Th,Fr,Sa",
 } as const
 
 export type MessageKey = keyof typeof en

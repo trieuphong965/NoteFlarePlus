@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronRight, Crosshair, Plus, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Segmented } from '@/components/ui/segmented'
 import { cn } from '@/lib/utils'
 import type { Note, NotePatch } from '@/lib/notes'
 import {
@@ -24,14 +24,15 @@ import {
   type Row,
   type Task,
 } from '@/lib/tasks'
-import { useI18n } from '@/i18n'
+import { dateLocale, useI18n } from '@/i18n'
 import { colorVar } from './noteColors'
 import { TaskDialog } from './TaskDialog'
+import { Chip } from './Chip'
 
 type Scale = 'day' | 'week' | 'month'
 const DAY_W: Record<Scale, number> = { day: 28, week: 11, month: 4 }
 const ROW_H = 36
-const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
+const HEAD_H = 48
 const PREFS_KEY = 'noteflare:koutei'
 
 interface Prefs {
@@ -70,7 +71,7 @@ interface Drag {
   moved: boolean
 }
 
-export function Koutei({ store, taskNotes, query }: { store: Store; taskNotes: Note[]; query: string }) {
+export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; taskNotes: Note[]; query: string; navSlot: HTMLElement | null }) {
   const { t } = useI18n()
   const [prefs, setPrefsState] = useState(readPrefs)
   const setPrefs = (p: Partial<Prefs>) =>
@@ -128,10 +129,10 @@ export function Koutei({ store, taskNotes, query }: { store: Store; taskNotes: N
   const scrolledFor = useRef<string>('')
   useLayoutEffect(() => {
     const key = `${prefs.scale}:${leftW}`
-    if (store.loading || scrolledFor.current === key) return
+    if (store.loading || !scroller.current || scrolledFor.current === key) return
     scrolledFor.current = key
     scrollToToday()
-  }, [store.loading, prefs.scale, leftW, scrollToToday])
+  }, [store.loading, prefs.scale, leftW, scrollToToday, rows.length > 0])
 
   // ---------------------------------------------------------------- editing
   const [editing, setEditing] = useState<{ id: string; isNew: boolean } | null>(null)
@@ -234,124 +235,212 @@ export function Koutei({ store, taskNotes, query }: { store: Store; taskNotes: N
 
   const lateCount = useMemo(() => rows.filter((r) => !r.hasChildren && isLate(r, today)).length, [rows, today])
 
+  const dialog = (
+        <TaskDialog
+          row={editRow}
+          rows={rows}
+          isNew={!!editing?.isNew}
+          onClose={() => {
+            // A new task closed without a name is dropped, like an empty new note.
+            if (editing?.isNew && editRow && !editRow.task.name.trim()) store.discard(editRow.task.id)
+            setEditing(null)
+          }}
+          onSave={(task) => {
+            save(task)
+            setEditing(null)
+          }}
+          onDelete={remove}
+          onAddChild={(task) => create({ parentId: task.id })}
+          onMove={move}
+        />
+  )
+
+  // ---------------------------------------------------------------- layout
+  // The card fills the window below the header; the page itself doesn't scroll.
+  const sectionRef = useRef<HTMLElement>(null)
+  const [height, setHeight] = useState<number>()
+  useLayoutEffect(() => {
+    const fit = () => {
+      const el = sectionRef.current
+      if (el) setHeight(Math.max(320, window.innerHeight - el.getBoundingClientRect().top - window.scrollY))
+    }
+    fit()
+    window.addEventListener('resize', fit)
+    return () => window.removeEventListener('resize', fit)
+  }, [navSlot, narrow, store.loading, rows.length > 0, shown.length > 0, !!query.trim()])
+
   // ---------------------------------------------------------------- render
-  if (store.loading) return <p className="px-6 py-16 text-center text-muted-foreground">{t('common.loading')}</p>
+  const toolbar = (
+    <nav aria-label={t('kt.scale')} className="mx-auto flex max-w-[84rem] items-center gap-2 px-3 pb-3 sm:px-6">
+      <ul className="flex gap-1 sm:gap-2">
+        {(['day', 'week', 'month'] as const).map((s) => (
+          <Chip key={s} active={prefs.scale === s} onClick={() => setPrefs({ scale: s })}>
+            {t(s === 'day' ? 'kt.scaleDay' : s === 'week' ? 'kt.scaleWeek' : 'kt.scaleMonth')}
+          </Chip>
+        ))}
+      </ul>
+      <ul className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
+        {lateCount > 0 && (
+          <li className="flex h-9 items-center gap-1.5 rounded-full bg-destructive/10 px-3 text-sm font-medium text-destructive [@media(pointer:coarse)]:h-10">
+            <span className="size-1.5 rounded-full bg-destructive" />
+            {t('kt.lateCount', { n: lateCount })}
+          </li>
+        )}
+        <Chip active={false} onClick={() => scrollToToday(true)} icon={<Crosshair />} label={t('kt.today')} />
+        <Chip active={prefs.inazuma} pressed={prefs.inazuma} morph={false} onClick={() => setPrefs({ inazuma: !prefs.inazuma })} icon={<Zap />} label={t('kt.inazuma')} />
+      </ul>
+    </nav>
+  )
+  const nav = navSlot ? createPortal(toolbar, navSlot) : null
+  const fab = (
+    <button
+      type="button"
+      onClick={() => create({})}
+      className={cn(
+        'group fixed right-[calc(1.25rem+env(safe-area-inset-right))] bottom-[calc(1.25rem+env(safe-area-inset-bottom))] z-30 flex h-14 items-center gap-2 rounded-2xl bg-primary pr-5 pl-4 font-medium text-primary-foreground outline-none sm:right-[calc(2rem+env(safe-area-inset-right))] sm:bottom-[calc(2rem+env(safe-area-inset-bottom))]',
+        'shadow-[0_10px_30px_-10px_color-mix(in_oklab,var(--primary)_80%,transparent)] transition-[transform,box-shadow] duration-200 ease-[var(--ease-out)]',
+        'hover:-translate-y-0.5 hover:shadow-[0_14px_34px_-10px_color-mix(in_oklab,var(--flare)_70%,transparent)] active:translate-y-0 active:scale-[0.97]',
+        'focus-visible:ring-[3px] focus-visible:ring-ring/50',
+        '[html[data-keyboard=open]_&]:pointer-events-none [html[data-keyboard=open]_&]:opacity-0',
+      )}
+    >
+      <Plus className="size-5 transition-transform duration-300 ease-[var(--ease-spring)] group-hover:rotate-90" />
+      {t('kt.add')}
+    </button>
+  )
+
+  if (store.loading)
+    return (
+      <>
+        {nav}
+        <main role="status" aria-live="polite" className="mx-auto max-w-[84rem] px-3 pt-6 sm:px-6">
+          <span className="sr-only">{t('common.loading')}</span>
+          <div aria-hidden className="grid gap-3">
+            {[56, 36, 36, 36, 36, 36].map((h, i) => (
+              <div key={i} className="skeleton rounded-2xl border" style={{ height: h, animationDelay: `${i * 90}ms` }} />
+            ))}
+          </div>
+        </main>
+      </>
+    )
+
+  // Nothing yet: the same quiet empty state as the notes view.
+  if (!rows.length || (query.trim() && !shown.length))
+    return (
+      <>
+        {nav}
+        <main className="mx-auto max-w-[84rem] px-3 pt-6 pb-32 sm:px-6">
+          <div className="mt-24 flex flex-col items-center gap-4 text-center">
+            <p className="max-w-sm text-muted-foreground">{query.trim() ? t('kt.emptySearch', { q: query.trim() }) : t('kt.empty')}</p>
+            {!query.trim() && (
+              <Button variant="outline" onClick={() => create({})}>
+                <Plus /> {t('kt.emptyButton')}
+              </Button>
+            )}
+          </div>
+        </main>
+        {fab}
+        {dialog}
+      </>
+    )
 
   const bodyH = shown.length * ROW_H
 
   return (
-    <section className="flex h-[calc(100dvh-4rem-env(safe-area-inset-top))] flex-col">
-      <div className="mx-auto flex w-full max-w-[120rem] flex-wrap items-center gap-2 px-3 py-2.5 sm:px-6">
-        <Segmented
-          label={t('kt.scale')}
-          value={prefs.scale}
-          onChange={(scale) => setPrefs({ scale })}
-          options={[
-            { value: 'day', label: t('kt.scaleDay') },
-            { value: 'week', label: t('kt.scaleWeek') },
-            { value: 'month', label: t('kt.scaleMonth') },
-          ]}
-        />
-        <Button variant="outline" size="sm" onClick={() => scrollToToday(true)}>
-          <Crosshair /> {t('kt.today')}
-        </Button>
-        <Button variant={prefs.inazuma ? 'secondary' : 'ghost'} size="sm" aria-pressed={prefs.inazuma} onClick={() => setPrefs({ inazuma: !prefs.inazuma })}>
-          <Zap className={prefs.inazuma ? 'text-destructive' : undefined} /> {t('kt.inazuma')}
-        </Button>
-        {lateCount > 0 && (
-          <span className="rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">{t('kt.lateCount', { n: lateCount })}</span>
+    <>
+      {nav}
+      <section ref={sectionRef} className="mx-auto flex max-w-[84rem] flex-col px-3 pt-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] sm:px-6 sm:pb-[calc(6.75rem+env(safe-area-inset-bottom))]" style={{ height }}>
+        {query.trim() && (
+          <p role="status" className="mb-3 px-1 text-sm text-muted-foreground">
+            {t('kt.results', { n: shown.length })}
+          </p>
         )}
-        <Legend />
-        <Button size="sm" className="ml-auto" onClick={() => create({})}>
-          <Plus /> {t('kt.add')}
-        </Button>
-      </div>
-
-      <div ref={scroller} className="relative min-h-0 flex-1 overflow-auto border-t overscroll-x-contain" onPointerMove={onDragMove}>
-        <div className="relative flex flex-col" style={{ width: leftW + width, minHeight: '100%' }}>
-          {/* ------------------------------------------------ header */}
-          <div className="sticky top-0 z-20 flex shrink-0 border-b bg-background" style={{ height: 48 }}>
-            <div className="sticky left-0 z-10 flex items-end border-r bg-background text-xs font-medium text-muted-foreground" style={{ width: leftW, minWidth: leftW }}>
-              <LeftCols narrow={narrow} header />
-            </div>
-            <TimeHeader first={first} nDays={nDays} dayW={dayW} scale={prefs.scale} today={today} />
-          </div>
-
-          {/* ------------------------------------------------ calendar background */}
-          <div aria-hidden className="pointer-events-none absolute bottom-0 z-0" style={{ left: leftW, top: 48, width }}>
-            <CalendarBackdrop first={first} nDays={nDays} dayW={dayW} scale={prefs.scale} />
-            <div className="absolute top-0 bottom-0 w-0.5 -translate-x-1/2 bg-primary/70" style={{ left: todayX }} />
-          </div>
-
-          {/* ------------------------------------------------ rows */}
-          <div className="relative z-[1] flex flex-1 flex-col">
-            {shown.map((r) => {
-              const late = !r.hasChildren && isLate(r, today)
-              return (
-                <div key={r.task.id} className="group flex shrink-0 hover:bg-foreground/[0.035]" style={{ height: ROW_H }}>
-                  <button
-                    type="button"
-                    onClick={() => setEditing({ id: r.task.id, isNew: false })}
-                    className="sticky left-0 z-10 flex items-center border-r border-b border-b-border/60 bg-background text-left text-sm outline-none group-hover:bg-[color-mix(in_oklab,var(--background),var(--foreground)_3.5%)] focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
-                    style={{ width: leftW, minWidth: leftW }}
-                  >
-                    <LeftCols narrow={narrow} row={r} late={late} collapsed={collapsed.has(r.task.id)} onToggle={() => setPrefs({ collapsed: collapsed.has(r.task.id) ? prefs.collapsed.filter((c) => c !== r.task.id) : [...prefs.collapsed, r.task.id] })} />
-                  </button>
-                  <div className="relative border-b border-b-border/40" style={{ width }}>
-                    <Bars row={drag?.id === r.task.id ? rolled(r, shifted(r.task, drag)) : r} xOf={xOf} dayW={dayW} today={today} late={late} dragging={drag?.id === r.task.id} onPointerDown={(e, mode) => startDrag(e, r, mode)} onPointerUp={() => endDrag(r)} />
-                  </div>
+        <div className="paper relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04),0_10px_24px_-16px_rgb(0_0_0/0.25)]">
+          <div ref={scroller} className="relative min-h-0 flex-1 overflow-auto overscroll-x-contain" onPointerMove={onDragMove}>
+            <div className="relative flex flex-col" style={{ width: leftW + width, minHeight: '100%' }}>
+              {/* ------------------------------------------------ header */}
+              <div className="sticky top-0 z-20 flex shrink-0 border-b bg-surface" style={{ height: HEAD_H }}>
+                <div className="sticky left-0 z-10 flex items-end border-r bg-surface text-xs font-medium text-muted-foreground" style={{ width: leftW, minWidth: leftW }}>
+                  <LeftCols narrow={narrow} header />
                 </div>
-              )
-            })}
+                <TimeHeader first={first} nDays={nDays} dayW={dayW} scale={prefs.scale} today={today} stickyLeft={leftW} />
+              </div>
 
-            <QuickAdd leftW={leftW} onAdd={(name) => create({ name }, false)} />
+              {/* ------------------------------------------------ calendar background */}
+              <div aria-hidden className="pointer-events-none absolute bottom-0 z-0" style={{ left: leftW, top: HEAD_H, width }}>
+                <CalendarBackdrop first={first} nDays={nDays} dayW={dayW} scale={prefs.scale} />
+                <div className="absolute top-0 bottom-0 w-0.5 -translate-x-1/2 bg-primary/70" style={{ left: todayX }} />
+              </div>
 
-            {/* The task column continues to the bottom, so the calendar never shows through it. */}
-            <div className="sticky left-0 z-10 flex-1 border-r bg-background" style={{ width: leftW }}>
-              {!rows.length && <p className="px-5 py-8 text-sm text-muted-foreground">{t('kt.empty')}</p>}
+              {/* ------------------------------------------------ rows */}
+              <div className="relative z-[1] flex flex-1 flex-col">
+                {shown.map((r) => {
+                  const late = !r.hasChildren && isLate(r, today)
+                  return (
+                    <div key={r.task.id} className="group flex shrink-0 hover:bg-foreground/[0.035]" style={{ height: ROW_H }}>
+                      <button
+                        type="button"
+                        onClick={() => setEditing({ id: r.task.id, isNew: false })}
+                        className="sticky left-0 z-10 flex items-center border-r border-b border-b-border/60 bg-surface text-left text-sm outline-none group-hover:bg-[color-mix(in_oklab,var(--surface),var(--foreground)_3.5%)] focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
+                        style={{ width: leftW, minWidth: leftW }}
+                      >
+                        <LeftCols
+                          narrow={narrow}
+                          row={r}
+                          late={late}
+                          collapsed={collapsed.has(r.task.id)}
+                          onToggle={() => setPrefs({ collapsed: collapsed.has(r.task.id) ? prefs.collapsed.filter((c) => c !== r.task.id) : [...prefs.collapsed, r.task.id] })}
+                        />
+                      </button>
+                      <div className="relative border-b border-b-border/40" style={{ width }}>
+                        <Bars
+                          row={drag?.id === r.task.id ? rolled(r, shifted(r.task, drag)) : r}
+                          xOf={xOf}
+                          dayW={dayW}
+                          today={today}
+                          late={late}
+                          dragging={drag?.id === r.task.id}
+                          onPointerDown={(e, mode) => startDrag(e, r, mode)}
+                          onPointerUp={() => endDrag(r)}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+
+                <QuickAdd leftW={leftW} onAdd={(name) => create({ name }, false)} />
+
+                {/* The task column continues to the bottom, so the calendar never shows through it. */}
+                <div className="sticky left-0 z-10 flex-1 border-r bg-surface" style={{ width: leftW }} />
+              </div>
+
+              {/* ------------------------------------------------ progress line */}
+              {prefs.inazuma && shown.length > 0 && (
+                <svg aria-hidden className="pointer-events-none absolute z-[2] overflow-visible" style={{ left: leftW, top: HEAD_H, width, height: bodyH }}>
+                  <polyline
+                    fill="none"
+                    stroke="var(--destructive)"
+                    strokeWidth={1.75}
+                    strokeLinejoin="round"
+                    points={[
+                      `${todayX},0`,
+                      ...shown.map((r, i) => {
+                        const p = inazumaPoint(r, today)
+                        return `${p === null ? todayX : xOf(0) + p * dayW},${i * ROW_H + ROW_H / 2}`
+                      }),
+                      `${todayX},${bodyH}`,
+                    ].join(' ')}
+                  />
+                </svg>
+              )}
             </div>
           </div>
-
-          {/* ------------------------------------------------ イナズマ線 */}
-          {prefs.inazuma && shown.length > 0 && (
-            <svg aria-hidden className="pointer-events-none absolute z-[2] overflow-visible" style={{ left: leftW, top: 48, width, height: bodyH }}>
-              <polyline
-                fill="none"
-                stroke="var(--destructive)"
-                strokeWidth={1.75}
-                strokeLinejoin="round"
-                points={[
-                  `${todayX},0`,
-                  ...shown.map((r, i) => {
-                    const p = inazumaPoint(r, today)
-                    return `${p === null ? todayX : xOf(0) + p * dayW},${i * ROW_H + ROW_H / 2}`
-                  }),
-                  `${todayX},${bodyH}`,
-                ].join(' ')}
-              />
-            </svg>
-          )}
+          <Legend inazuma={prefs.inazuma} />
         </div>
-      </div>
-
-      <TaskDialog
-        row={editRow}
-        rows={rows}
-        isNew={!!editing?.isNew}
-        onClose={() => {
-          // A new task closed without a name is dropped, like an empty new note.
-          if (editing?.isNew && editRow && !editRow.task.name.trim()) store.discard(editRow.task.id)
-          setEditing(null)
-        }}
-        onSave={(task) => {
-          save(task)
-          setEditing(null)
-        }}
-        onDelete={remove}
-        onAddChild={(task) => create({ parentId: task.id })}
-        onMove={move}
-      />
-    </section>
+      </section>
+      {fab}
+      {dialog}
+    </>
   )
 }
 
@@ -364,6 +453,9 @@ function shifted(task: Task, d: Pick<Drag, 'mode' | 'dd'>): Task {
   if (d.mode === 'end') return { ...task, planEnd: isoOf(Math.max(s, e + d.dd)) }
   return { ...task, planStart: isoOf(Math.min(e, s + d.dd)) }
 }
+
+/** Short month/day in the app language: 11/26, 26/11. */
+const md = (iso: string) => new Intl.DateTimeFormat(dateLocale(), { month: 'numeric', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${iso}T00:00:00Z`))
 
 const rolled = (r: Row, task: Task): Row => ({ ...r, task, planStart: task.planStart, planEnd: task.planEnd })
 
@@ -392,7 +484,7 @@ function LeftCols({
         {!narrow && <span className={cn(cell, 'w-14')}>WBS</span>}
         <span className={cn(cell, 'flex-1')}>{t('kt.colName')}</span>
         {!narrow && <span className={cn(cell, 'w-24')}>{t('kt.colOwner')}</span>}
-        {!narrow && <span className={cn(cell, 'w-16 text-right')}>{t('kt.colProgress')}</span>}
+        {!narrow && <span className={cn(cell, 'w-20 text-right')}>{t('kt.colProgress')}</span>}
       </div>
     )
   const task = row.task
@@ -423,7 +515,7 @@ function LeftCols({
       </span>
       {!narrow && <span className={cn(cell, 'w-24 text-muted-foreground')}>{task.owner}</span>}
       {!narrow && (
-        <span className={cn(cell, 'w-16 text-right tabular-nums', late ? 'font-semibold text-destructive' : row.progress === 100 ? 'text-success' : '')}>
+        <span className={cn(cell, 'w-20 text-right tabular-nums', late ? 'font-semibold text-destructive' : row.progress === 100 ? 'text-success' : '')}>
           {row.progress}%
         </span>
       )}
@@ -475,7 +567,7 @@ function Bars({
       )
       out.push(
         <span key="ml" className="pointer-events-none absolute top-1/2 -translate-y-1/2 text-[11px] whitespace-nowrap text-muted-foreground" style={{ left: left + dayW / 2 + 12 }}>
-          {row.planEnd.slice(5).replace('-', '/')}
+          {md(row.planEnd)}
         </span>,
       )
     } else if (row.hasChildren) {
@@ -517,7 +609,7 @@ function Bars({
     if (!task.milestone || row.hasChildren)
       out.push(
         <span key="pct" className={cn('pointer-events-none absolute top-[3px] text-[11px] whitespace-nowrap tabular-nums', late ? 'font-semibold text-destructive' : 'text-muted-foreground')} style={{ left: left + w + 6 }}>
-          {row.progress}%{dragging && ` · ${row.planStart.slice(5).replace('-', '/')}–${row.planEnd.slice(5).replace('-', '/')}`}
+          {row.progress}%{dragging && ` · ${md(row.planStart)}–${md(row.planEnd)}`}
         </span>,
       )
   }
@@ -538,10 +630,11 @@ function Bars({
   return <>{out}</>
 }
 
-function Legend() {
+/** Key for the marks on the chart, as a quiet footer under it. */
+function Legend({ inazuma }: { inazuma: boolean }) {
   const { t } = useI18n()
   return (
-    <div className="flex items-center gap-3 px-1 text-xs text-muted-foreground max-md:hidden">
+    <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t px-4 py-2 text-xs text-muted-foreground">
       <span className="flex items-center gap-1.5">
         <span className="h-2.5 w-6 rounded-[2px] border border-primary/70 bg-[linear-gradient(to_right,var(--primary)_50%,color-mix(in_oklab,var(--primary),transparent_78%)_50%)]" />
         {t('kt.plan')}
@@ -551,16 +644,37 @@ function Legend() {
         {t('kt.actual')}
       </span>
       <span className="flex items-center gap-1.5">
+        <span className="size-2.5 rotate-45 border-[1.5px] border-foreground" />
+        {t('kt.milestone')}
+      </span>
+      <span className="flex items-center gap-1.5">
         <span className="h-3.5 w-0.5 bg-primary/70" />
         {t('kt.today')}
       </span>
+      {inazuma && (
+        <span className="flex items-center gap-1.5">
+          <svg viewBox="0 0 24 14" className="h-3.5 w-6 overflow-visible" aria-hidden>
+            <polyline points="12,0 6,5 15,9 12,14" fill="none" stroke="var(--destructive)" strokeWidth={1.75} strokeLinejoin="round" />
+          </svg>
+          {t('kt.inazuma')}
+        </span>
+      )}
     </div>
   )
 }
 
 // ------------------------------------------------------------------ calendar
 
-function TimeHeader({ first, nDays, dayW, scale, today }: { first: number; nDays: number; dayW: number; scale: Scale; today: number }) {
+function TimeHeader({ first, nDays, dayW, scale, today, stickyLeft }: { first: number; nDays: number; dayW: number; scale: Scale; today: number; stickyLeft: number }) {
+  const { t, lang } = useI18n()
+  // Month and year names follow the app language (2026年11月 / Nov 2026 / thg 11, 2026).
+  const fmt = useMemo(() => {
+    const loc = dateLocale()
+    const f = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(loc, { timeZone: 'UTC', ...o })
+    return { yearMonth: f({ year: 'numeric', month: 'short' }), year: f({ year: 'numeric' }), month: f({ month: 'short' }), monthDay: f({ month: 'numeric', day: 'numeric' }) }
+  }, [lang]) // eslint-disable-line react-hooks/exhaustive-deps
+  const weekdays = t('kt.weekdays').split(',')
+  const at = (day: number) => new Date(day * 86_400_000)
   // Top row: months (years in the month view). Bottom row: days, weeks or months.
   const top: { x: number; w: number; label: string }[] = []
   const bottom: { x: number; w: number; label: string; sub?: string; tone?: 'sat' | 'off'; today?: boolean; title?: string }[] = []
@@ -572,26 +686,29 @@ function TimeHeader({ first, nDays, dayW, scale, today }: { first: number; nDays
     const key = scale === 'month' ? y : `${y}-${m}`
     if (key !== cur) {
       cur = key
-      top.push({ x: i * dayW, w: 0, label: scale === 'month' ? `${y}年` : `${y}年${Number(m)}月` })
+      top.push({ x: i * dayW, w: 0, label: (scale === 'month' ? fmt.year : fmt.yearMonth).format(at(day)) })
     }
     top[top.length - 1].w += dayW
 
     if (scale === 'day') {
       const w = weekdayOf(day)
       const hol = holidayOf(day)
-      bottom.push({ x: i * dayW, w: dayW, label: String(Number(d)), sub: WEEKDAYS[w], tone: hol || w === 0 ? 'off' : w === 6 ? 'sat' : undefined, today: day === today, title: hol ?? undefined })
+      bottom.push({ x: i * dayW, w: dayW, label: String(Number(d)), sub: weekdays[w], tone: hol || w === 0 ? 'off' : w === 6 ? 'sat' : undefined, today: day === today, title: hol ?? undefined })
     } else if (scale === 'week' && weekdayOf(day) === 1) {
-      bottom.push({ x: i * dayW, w: dayW * 7, label: `${Number(m)}/${Number(d)}`, today: today >= day && today < day + 7 })
+      bottom.push({ x: i * dayW, w: dayW * 7, label: fmt.monthDay.format(at(day)), today: today >= day && today < day + 7 })
     } else if (scale === 'month' && (d === '01' || i === 0)) {
       const days = new Date(Date.UTC(Number(y), Number(m), 0)).getUTCDate() - Number(d) + 1
-      bottom.push({ x: i * dayW, w: dayW * days, label: `${Number(m)}月`, today: isoOf(today).slice(0, 7) === iso.slice(0, 7) })
+      bottom.push({ x: i * dayW, w: dayW * days, label: fmt.month.format(at(day)), today: isoOf(today).slice(0, 7) === iso.slice(0, 7) })
     }
   }
   return (
     <div className="relative shrink-0 text-xs" style={{ width: nDays * dayW }}>
       {top.map((s) => (
-        <div key={s.x} className="absolute top-0 h-5 overflow-hidden border-l px-1.5 leading-5 font-medium whitespace-nowrap text-muted-foreground" style={{ left: s.x, width: s.w }}>
-          {s.label}
+        <div key={s.x} className="absolute top-0 h-5 border-l leading-5 font-medium whitespace-nowrap text-muted-foreground [clip-path:inset(0)]" style={{ left: s.x, width: s.w }}>
+          {/* Sticks beside the task column, so the month in view is always named. */}
+          <span className="sticky inline-block px-1.5" style={{ left: stickyLeft }}>
+            {s.label}
+          </span>
         </div>
       ))}
       {bottom.map((c) => (
