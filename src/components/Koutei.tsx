@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { createPortal } from 'react-dom'
-import { ChevronRight, CirclePlus, Crosshair, FileText, Folder, FolderOpen, Pencil, Plus, Tags, Trash2, Zap } from 'lucide-react'
+import { ChevronDown, ChevronRight, CirclePlus, Download, File, FileSpreadsheet, FileText, Folder, FolderOpen, Pencil, Plus, Save, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { exportCsv, exportExcel } from '@/lib/kouteiExport'
 import { cn } from '@/lib/utils'
 import type { Note, NotePatch } from '@/lib/notes'
 import {
@@ -28,12 +29,11 @@ import {
 import { dateLocale, useI18n } from '@/i18n'
 import { colorVar } from './noteColors'
 import { TaskDialog } from './TaskDialog'
-import { Chip } from './Chip'
 
 type Scale = 'day' | 'week' | 'month'
-const DAY_W: Record<Scale, number> = { day: 26, week: 10, month: 3.5 }
-const ROW_H = 30
-const HEAD_H = 48
+const DAY_W: Record<Scale, number> = { day: 24, week: 9, month: 3.2 }
+const ROW_H = 26
+const HEAD_H = 40
 const PREFS_KEY = 'noteflare:koutei'
 
 interface Prefs {
@@ -75,7 +75,7 @@ interface Drag {
   moved: boolean
 }
 
-export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; taskNotes: Note[]; query: string; navSlot: HTMLElement | null }) {
+export function Koutei({ store, taskNotes, query }: { store: Store; taskNotes: Note[]; query: string }) {
   const { t } = useI18n()
   const [prefs, setPrefsState] = useState(readPrefs)
   const setPrefs = (p: Partial<Prefs>) =>
@@ -102,7 +102,7 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
   }, [])
 
   const narrow = useNarrow()
-  const leftW = narrow ? 172 : 344
+  const leftW = narrow ? 168 : 320
 
   // ---------------------------------------------------------------- range
   const [first, last] = useMemo(() => {
@@ -272,58 +272,88 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
     fit()
     window.addEventListener('resize', fit)
     return () => window.removeEventListener('resize', fit)
-  }, [navSlot, narrow, store.loading, rows.length > 0, shown.length > 0, !!query.trim()])
+  }, [narrow, store.loading, rows.length > 0, shown.length > 0, !!query.trim()])
 
   // ---------------------------------------------------------------- render
+  const saveNow = () => {
+    store.flush()
+    toast.success(t('kt.saved'))
+  }
+  const download = async (kind: 'xlsx' | 'csv') => {
+    try {
+      if (kind === 'csv') exportCsv(rows, t)
+      else await toast.promise(exportExcel(rows, t, t('kt.sheetTitle')), { loading: t('kt.exporting'), error: t('kt.exportFailed') })
+    } catch {
+      toast.error(t('kt.exportFailed'))
+    }
+  }
+
+  // The bar above the chart, laid out like a classic 工程表 tool.
   const toolbar = (
-    <nav aria-label={t('kt.scale')} className="mx-auto flex max-w-[84rem] items-center gap-2 px-3 pb-3 sm:px-6">
-      <ul className="flex gap-1 sm:gap-2">
-        {(['day', 'week', 'month'] as const).map((s) => (
-          <Chip key={s} active={prefs.scale === s} onClick={() => setPrefs({ scale: s })}>
-            {t(s === 'day' ? 'kt.scaleDay' : s === 'week' ? 'kt.scaleWeek' : 'kt.scaleMonth')}
-          </Chip>
-        ))}
-      </ul>
-      <ul className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-2 border-b bg-[var(--kt-head)] px-2 py-2 sm:px-3">
+      <Button size="sm" className="h-8 rounded-md px-3" onClick={() => create({})}>
+        <CirclePlus /> {t('kt.new')}
+      </Button>
+      <Button size="sm" variant="outline" className="h-8 rounded-md bg-surface px-3" onClick={saveNow} aria-label={t('kt.saveNow')}>
+        <Save /> <span className="max-sm:hidden">{t('kt.saveNow')}</span>
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="sm" variant="outline" className="h-8 rounded-md bg-surface px-3" aria-label={t('kt.download')} disabled={!rows.length}>
+            <Download /> <span className="max-sm:hidden">{t('kt.download')}</span> <ChevronDown className="opacity-60" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-60">
+          <DropdownMenuItem onSelect={() => void download('xlsx')}>
+            <FileSpreadsheet /> {t('kt.dlExcel')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void download('csv')}>
+            <FileText /> {t('kt.dlCsv')}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-2">
         {lateCount > 0 && (
-          <li className="flex h-9 items-center gap-1.5 rounded-full bg-destructive/10 px-3 text-sm font-medium text-destructive [@media(pointer:coarse)]:h-10">
+          <span className="flex items-center gap-1.5 text-xs font-medium text-destructive">
             <span className="size-1.5 rounded-full bg-destructive" />
             {t('kt.lateCount', { n: lateCount })}
-          </li>
+          </span>
         )}
-        <Chip active={false} onClick={() => scrollToToday(true)} icon={<Crosshair />} label={t('kt.today')} />
-        <Chip active={prefs.info} pressed={prefs.info} morph={false} onClick={() => setPrefs({ info: !prefs.info })} icon={<Tags />} label={t('kt.info')} />
-        <Chip active={prefs.inazuma} pressed={prefs.inazuma} morph={false} onClick={() => setPrefs({ inazuma: !prefs.inazuma })} icon={<Zap />} label={t('kt.inazuma')} />
-        <li className="max-sm:hidden">
-          <Button size="sm" className="h-9 rounded-full px-4" onClick={() => create({})}>
-            <Plus /> {t('kt.add')}
-          </Button>
-        </li>
-      </ul>
-    </nav>
-  )
-  const nav = navSlot ? createPortal(toolbar, navSlot) : null
-  const fab = (
-    <button
-      type="button"
-      onClick={() => create({})}
-      className={cn(
-        'group fixed right-[calc(1.25rem+env(safe-area-inset-right))] bottom-[calc(1.25rem+env(safe-area-inset-bottom))] z-30 flex h-14 sm:hidden items-center gap-2 rounded-2xl bg-primary pr-5 pl-4 font-medium text-primary-foreground outline-none sm:right-[calc(2rem+env(safe-area-inset-right))] sm:bottom-[calc(2rem+env(safe-area-inset-bottom))]',
-        'shadow-[0_10px_30px_-10px_color-mix(in_oklab,var(--primary)_80%,transparent)] transition-[transform,box-shadow] duration-200 ease-[var(--ease-out)]',
-        'hover:-translate-y-0.5 hover:shadow-[0_14px_34px_-10px_color-mix(in_oklab,var(--flare)_70%,transparent)] active:translate-y-0 active:scale-[0.97]',
-        'focus-visible:ring-[3px] focus-visible:ring-ring/50',
-        '[html[data-keyboard=open]_&]:pointer-events-none [html[data-keyboard=open]_&]:opacity-0',
-      )}
-    >
-      <Plus className="size-5 transition-transform duration-300 ease-[var(--ease-spring)] group-hover:rotate-90" />
-      {t('kt.add')}
-    </button>
+        <label className="flex cursor-pointer items-center gap-1.5 text-sm select-none">
+          <input type="checkbox" checked={prefs.info} onChange={(e) => setPrefs({ info: e.target.checked })} className="size-4 accent-[var(--primary)]" />
+          {t('kt.showInfo')}
+        </label>
+        <label className="flex cursor-pointer items-center gap-1.5 text-sm select-none max-sm:hidden">
+          <input type="checkbox" checked={prefs.inazuma} onChange={(e) => setPrefs({ inazuma: e.target.checked })} className="size-4 accent-[var(--primary)]" />
+          {t('kt.showInazuma')}
+        </label>
+        <Button size="sm" variant="outline" className="h-8 rounded-md bg-surface px-3" onClick={() => scrollToToday(true)}>
+          {t('kt.today')}
+        </Button>
+        <div role="group" aria-label={t('kt.scale')} className="flex h-8 overflow-hidden rounded-md border bg-surface">
+          {(['day', 'week', 'month'] as const).map((sc) => (
+            <button
+              key={sc}
+              type="button"
+              aria-pressed={prefs.scale === sc}
+              onClick={() => setPrefs({ scale: sc })}
+              className={cn(
+                'min-w-10 border-l px-3 text-sm outline-none first:border-l-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
+                prefs.scale === sc ? 'bg-foreground/[0.09] font-semibold shadow-[inset_0_1px_3px_rgb(0_0_0/0.12)]' : 'hover:bg-foreground/[0.05]',
+              )}
+            >
+              {t(sc === 'day' ? 'kt.scaleDay' : sc === 'week' ? 'kt.scaleWeek' : 'kt.scaleMonth')}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   )
 
   if (store.loading)
     return (
       <>
-        {nav}
         <main role="status" aria-live="polite" className="mx-auto max-w-[84rem] px-3 pt-6 sm:px-6">
           <span className="sr-only">{t('common.loading')}</span>
           <div aria-hidden className="grid gap-3">
@@ -339,7 +369,6 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
   if (!rows.length || (query.trim() && !shown.length))
     return (
       <>
-        {nav}
         <main className="mx-auto max-w-[84rem] px-3 pt-6 pb-32 sm:px-6">
           <div className="mt-24 flex flex-col items-center gap-4 text-center">
             <p className="max-w-sm text-muted-foreground">{query.trim() ? t('kt.emptySearch', { q: query.trim() }) : t('kt.empty')}</p>
@@ -350,7 +379,6 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
             )}
           </div>
         </main>
-        {fab}
         {dialog}
       </>
     )
@@ -362,20 +390,20 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
 
   return (
     <>
-      {nav}
       {/* Full width: the chart is the page. */}
-      <section ref={sectionRef} className="flex flex-col px-2 pt-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-4 sm:pb-4" style={{ height }}>
+      <section ref={sectionRef} className="flex flex-col px-2 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-4 sm:pb-4" style={{ height }}>
         {query.trim() && (
           <p role="status" className="mb-2 px-1 text-sm text-muted-foreground">
             {t('kt.results', { n: shown.length })}
           </p>
         )}
-        <div className="paper relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04),0_10px_24px_-16px_rgb(0_0_0/0.25)]">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.05)]">
+          {toolbar}
           <div ref={scroller} className="relative min-h-0 flex-1 overflow-auto overscroll-x-contain" onPointerMove={onDragMove}>
             <div className="relative flex flex-col" style={{ width: leftW + width, minHeight: '100%' }}>
               {/* ------------------------------------------------ header */}
-              <div className="sticky top-0 z-20 flex shrink-0 border-b bg-surface" style={{ height: HEAD_H }}>
-                <div className="sticky left-0 z-10 flex items-end border-r bg-surface text-xs font-medium text-muted-foreground" style={{ width: leftW, minWidth: leftW }}>
+              <div className="sticky top-0 z-20 flex shrink-0 border-b bg-[var(--kt-head)]" style={{ height: HEAD_H }}>
+                <div className="sticky left-0 z-10 flex border-r bg-[var(--kt-head)] text-xs font-medium" style={{ width: leftW, minWidth: leftW }}>
                   <LeftHeader narrow={narrow} />
                 </div>
                 <TimeHeader first={first} nDays={nDays} dayW={dayW} scale={prefs.scale} today={today} stickyLeft={leftW} />
@@ -392,9 +420,9 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
                 {shown.map((r) => {
                   const late = !r.hasChildren && isLate(r, today)
                   return (
-                    <div key={r.task.id} className="group flex shrink-0 hover:bg-foreground/[0.035]" style={{ height: ROW_H }}>
+                    <div key={r.task.id} className="group flex shrink-0 hover:bg-foreground/[0.03]" style={{ height: ROW_H }}>
                       <div
-                        className="sticky left-0 z-10 flex items-center border-r border-b border-b-border/60 bg-surface text-sm group-hover:bg-[color-mix(in_oklab,var(--surface),var(--foreground)_3.5%)]"
+                        className="sticky left-0 z-10 flex items-center border-r border-b border-b-[var(--kt-grid)] bg-surface text-[13px] group-hover:bg-[color-mix(in_oklab,var(--surface),var(--foreground)_3%)]"
                         style={{ width: leftW, minWidth: leftW }}
                       >
                         <TreeRow
@@ -408,7 +436,7 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
                           onDelete={() => remove(r.task)}
                         />
                       </div>
-                      <div className="relative border-b border-b-border/40" style={{ width }}>
+                      <div className="relative border-b border-b-[var(--kt-grid)]" style={{ width }}>
                         <Bars
                           row={shownRow(r)}
                           xOf={xOf}
@@ -486,10 +514,8 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
 
             </div>
           </div>
-          <Legend inazuma={prefs.inazuma} />
         </div>
       </section>
-      {fab}
       {dialog}
     </>
   )
@@ -523,10 +549,9 @@ const rolled = (r: Row, task: Task): Row => ({ ...r, task, planStart: task.planS
 function LeftHeader({ narrow }: { narrow: boolean }) {
   const { t } = useI18n()
   return (
-    <div className="flex w-full items-center pb-2">
-      {!narrow && <span className="w-11 shrink-0 px-2">WBS</span>}
-      <span className="flex-1 truncate px-2">{t('kt.colName')}</span>
-      {!narrow && <span className="w-[5.25rem] shrink-0 px-2 text-center">{t('kt.colEdit')}</span>}
+    <div className="flex w-full items-stretch">
+      <span className="flex flex-1 items-center justify-center truncate px-2">{t('kt.colName')}</span>
+      {!narrow && <span className="flex w-[4.75rem] shrink-0 items-center justify-center border-l px-1">{t('kt.colEdit')}</span>}
     </div>
   )
 }
@@ -553,23 +578,22 @@ function TreeRow({
 }) {
   const { t } = useI18n()
   const task = row.task
-  const Icon = row.hasChildren ? (collapsed ? Folder : FolderOpen) : FileText
+  const Icon = row.hasChildren ? (collapsed ? Folder : FolderOpen) : File
   return (
     <div className="flex h-full w-full min-w-0 items-center">
-      {!narrow && <span className="w-11 shrink-0 truncate px-2 font-mono text-[11px] text-muted-foreground">{row.wbs}</span>}
-      <span className="shrink-0" style={{ width: row.depth * (narrow ? 10 : 14) + (narrow ? 4 : 0) }} />
+      <span className="shrink-0" style={{ width: 4 + row.depth * (narrow ? 10 : 16) }} />
       {row.hasChildren ? (
         <button
           type="button"
           aria-label={collapsed ? t('kt.expand') : t('kt.collapse')}
           aria-expanded={!collapsed}
           onClick={onToggle}
-          className="grid size-6 shrink-0 place-items-center rounded outline-none hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="grid size-5 shrink-0 place-items-center rounded text-foreground/70 outline-none hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring/50"
         >
-          <ChevronRight className={cn('size-3.5 transition-transform duration-200', !collapsed && 'rotate-90')} />
+          <ChevronRight className={cn('size-3 fill-current transition-transform duration-200', !collapsed && 'rotate-90')} />
         </button>
       ) : (
-        <span className="w-6 shrink-0" />
+        <span className="w-5 shrink-0" />
       )}
       <button
         type="button"
@@ -578,23 +602,29 @@ function TreeRow({
         className="flex h-full min-w-0 flex-1 items-center gap-1.5 pr-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
       >
         <Icon
-          className={cn('size-4 shrink-0', row.hasChildren ? 'text-[var(--kt-folder)]' : late ? 'text-destructive' : 'text-muted-foreground')}
+          className={cn('size-3.5 shrink-0 fill-current', row.hasChildren ? 'text-[var(--kt-folder)]' : late ? 'text-destructive/80' : 'text-[var(--kt-folder)]/70')}
+          strokeWidth={1.5}
           style={!row.hasChildren && task.color !== 'default' && !late ? { color: `color-mix(in oklab, ${colorVar(task.color)}, var(--foreground) 45%)` } : undefined}
         />
-        <span className={cn('truncate', row.hasChildren && 'font-semibold', !task.name && 'text-muted-foreground italic')}>
+        <span className={cn('truncate', !task.name && 'text-muted-foreground italic')}>
           {task.milestone && !row.hasChildren && '◆ '}
           {task.name || t('kt.untitled')}
         </span>
         {narrow && <span className={cn('ml-auto shrink-0 text-xs tabular-nums', late ? 'font-semibold text-destructive' : 'text-muted-foreground')}>{row.progress}%</span>}
       </button>
       {!narrow && (
-        <span className="flex w-[5.25rem] shrink-0 items-center justify-center gap-0.5 opacity-55 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <span className="flex h-full w-[4.75rem] shrink-0 items-center justify-center gap-px border-l border-l-[var(--kt-grid)]">
           <RowAction label={t('kt.editTitle')} onClick={onEdit}>
             <Pencil />
           </RowAction>
-          <RowAction label={t('kt.addChild')} onClick={onAddChild}>
-            <CirclePlus />
-          </RowAction>
+          {/* Like a file tree: folders take new items; a file gets one from its dialog. */}
+          {row.hasChildren ? (
+            <RowAction label={t('kt.addChild')} onClick={onAddChild}>
+              <CirclePlus />
+            </RowAction>
+          ) : (
+            <span className="size-6" />
+          )}
           <RowAction label={t('kt.delete')} onClick={onDelete} danger>
             <Trash2 />
           </RowAction>
@@ -612,7 +642,7 @@ function RowAction({ label, onClick, danger, children }: { label: string; onClic
       title={label}
       onClick={onClick}
       className={cn(
-        'grid size-6 place-items-center rounded outline-none hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring/50 [&_svg]:size-3.5',
+        'grid size-6 place-items-center rounded text-foreground/75 outline-none hover:bg-foreground/10 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 [&_svg]:size-3.5',
         danger && 'hover:text-destructive',
       )}
     >
@@ -694,7 +724,7 @@ function Bars({
     } else if (row.hasChildren) {
       // Summary: grey, filled to the rolled-up progress.
       out.push(
-        <div key="s" title={title} onPointerDown={(ev) => onPointerDown(ev, 'move')} onPointerUp={onPointerUp} className="absolute top-[7px] h-4 cursor-pointer overflow-hidden rounded-[3px] bg-[var(--kt-summary-track)]" style={{ left, width: w }}>
+        <div key="s" title={title} onPointerDown={(ev) => onPointerDown(ev, 'move')} onPointerUp={onPointerUp} className="absolute top-[5px] h-4 cursor-pointer overflow-hidden rounded-[2px] bg-[var(--kt-summary-track)]" style={{ left, width: w }}>
           <div className="h-full bg-[var(--kt-summary)]" style={{ width: `${row.progress}%` }} />
           {pctInside && <span className="absolute inset-0 grid place-items-center text-[10.5px] leading-none font-semibold tabular-nums text-foreground/85">{row.progress}%</span>}
         </div>,
@@ -707,7 +737,7 @@ function Bars({
           title={title}
           onPointerDown={(ev) => onPointerDown(ev, 'move')}
           onPointerUp={onPointerUp}
-          className={cn('absolute top-[6px] h-[18px] cursor-grab overflow-hidden rounded-[3px] border', dragging && 'cursor-grabbing shadow-md ring-2 ring-primary/60')}
+          className={cn('absolute top-[4px] h-[18px] cursor-grab overflow-hidden rounded-[2px] border', dragging && 'cursor-grabbing shadow-md ring-2 ring-primary/60')}
           style={{ left, width: w, borderColor: `color-mix(in oklab, ${tint}, transparent 35%)`, background: `color-mix(in oklab, ${tint}, transparent 80%)` }}
         >
           <div className="h-full" style={{ width: `${row.progress}%`, background: `color-mix(in oklab, ${tint}, transparent 18%)` }} />
@@ -731,7 +761,7 @@ function Bars({
       <div
         key="a"
         title={`${t('kt.actual')}: ${row.actualStart} ~ ${row.actualEnd ?? '…'}`}
-        className={cn('pointer-events-none absolute top-[25px] h-[3px] rounded-full', row.actualEnd ? 'bg-success' : 'bg-[linear-gradient(to_right,var(--success)_70%,transparent)]')}
+        className={cn('pointer-events-none absolute top-[23px] h-[2px] rounded-full', row.actualEnd ? 'bg-success' : 'bg-[linear-gradient(to_right,var(--success)_70%,transparent)]')}
         style={{ left: xOf(s), width: (e - s + 1) * dayW }}
       />,
     )
@@ -739,61 +769,15 @@ function Bars({
   return <>{out}</>
 }
 
-/** Key for the marks on the chart, as a quiet footer under it. */
-function Legend({ inazuma }: { inazuma: boolean }) {
-  const { t } = useI18n()
-  return (
-    <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t px-4 py-2 text-xs text-muted-foreground">
-      <span className="flex items-center gap-1.5">
-        <span className="h-2.5 w-6 rounded-[2px] border border-[var(--kt-bar)] bg-[linear-gradient(to_right,var(--kt-bar)_50%,color-mix(in_oklab,var(--kt-bar),transparent_80%)_50%)]" />
-        {t('kt.plan')}
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-[3px] w-6 rounded-full bg-success" />
-        {t('kt.actual')}
-      </span>
-      <span className="flex items-center gap-1.5">
-        <svg viewBox="0 0 24 12" className="h-3 w-6 overflow-visible" aria-hidden>
-          <path d="M0,2 H6 V10 H22" fill="none" stroke="var(--kt-link)" strokeWidth={1.4} />
-          <path d="M19,7 L24,10 L19,13 z" fill="var(--kt-link)" />
-        </svg>
-        {t('kt.after')}
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="size-2.5 rotate-45 border-[1.5px] border-foreground" />
-        {t('kt.milestone')}
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="h-3.5 w-0.5 bg-primary/70" />
-        {t('kt.today')}
-      </span>
-      {inazuma && (
-        <span className="flex items-center gap-1.5">
-          <svg viewBox="0 0 24 14" className="h-3.5 w-6 overflow-visible" aria-hidden>
-            <polyline points="12,0 6,5 15,9 12,14" fill="none" stroke="var(--destructive)" strokeWidth={1.75} strokeLinejoin="round" />
-          </svg>
-          {t('kt.inazuma')}
-        </span>
-      )}
-    </div>
-  )
-}
-
 // ------------------------------------------------------------------ calendar
 
 function TimeHeader({ first, nDays, dayW, scale, today, stickyLeft }: { first: number; nDays: number; dayW: number; scale: Scale; today: number; stickyLeft: number }) {
   const { t, lang } = useI18n()
-  // Month and year names follow the app language (2026年11月 / Nov 2026 / thg 11, 2026).
-  const fmt = useMemo(() => {
-    const loc = dateLocale()
-    const f = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(loc, { timeZone: 'UTC', ...o })
-    return { yearMonth: f({ year: 'numeric', month: 'short' }), year: f({ year: 'numeric' }), month: f({ month: 'short' }), monthDay: f({ month: 'numeric', day: 'numeric' }) }
-  }, [lang]) // eslint-disable-line react-hooks/exhaustive-deps
+  const fmt = useMemo(() => new Intl.DateTimeFormat(dateLocale(), { timeZone: 'UTC', month: 'short' }), [lang]) // eslint-disable-line react-hooks/exhaustive-deps
   const weekdays = t('kt.weekdays').split(',')
-  const at = (day: number) => new Date(day * 86_400_000)
-  // Top row: months (years in the month view). Bottom row: days, weeks or months.
+  // Top row: 2026-11 (years in the month view). Bottom row: days, week starts or months.
   const top: { x: number; w: number; label: string }[] = []
-  const bottom: { x: number; w: number; label: string; sub?: string; tone?: 'sat' | 'off'; today?: boolean; title?: string }[] = []
+  const bottom: { x: number; w: number; label: string; tone?: 'sat' | 'off'; today?: boolean; title?: string }[] = []
   let cur = ''
   for (let i = 0; i < nDays; i++) {
     const day = first + i
@@ -802,25 +786,25 @@ function TimeHeader({ first, nDays, dayW, scale, today, stickyLeft }: { first: n
     const key = scale === 'month' ? y : `${y}-${m}`
     if (key !== cur) {
       cur = key
-      top.push({ x: i * dayW, w: 0, label: (scale === 'month' ? fmt.year : fmt.yearMonth).format(at(day)) })
+      top.push({ x: i * dayW, w: 0, label: key })
     }
     top[top.length - 1].w += dayW
 
     if (scale === 'day') {
       const w = weekdayOf(day)
       const hol = holidayOf(day)
-      bottom.push({ x: i * dayW, w: dayW, label: String(Number(d)), sub: weekdays[w], tone: hol || w === 0 ? 'off' : w === 6 ? 'sat' : undefined, today: day === today, title: hol ?? undefined })
+      bottom.push({ x: i * dayW, w: dayW, label: String(Number(d)), tone: hol || w === 0 ? 'off' : w === 6 ? 'sat' : undefined, today: day === today, title: `${iso} (${weekdays[w]})${hol ? ` ${hol}` : ''}` })
     } else if (scale === 'week' && weekdayOf(day) === 1) {
-      bottom.push({ x: i * dayW, w: dayW * 7, label: fmt.monthDay.format(at(day)), today: today >= day && today < day + 7 })
+      bottom.push({ x: i * dayW, w: dayW * 7, label: `${Number(m)}/${Number(d)}`, today: today >= day && today < day + 7 })
     } else if (scale === 'month' && (d === '01' || i === 0)) {
       const days = new Date(Date.UTC(Number(y), Number(m), 0)).getUTCDate() - Number(d) + 1
-      bottom.push({ x: i * dayW, w: dayW * days, label: fmt.month.format(at(day)), today: isoOf(today).slice(0, 7) === iso.slice(0, 7) })
+      bottom.push({ x: i * dayW, w: dayW * days, label: fmt.format(new Date(day * 86_400_000)), today: isoOf(today).slice(0, 7) === iso.slice(0, 7) })
     }
   }
   return (
     <div className="relative shrink-0 text-xs" style={{ width: nDays * dayW }}>
       {top.map((s) => (
-        <div key={s.x} className="absolute top-0 h-5 border-l leading-5 font-medium whitespace-nowrap text-muted-foreground [clip-path:inset(0)]" style={{ left: s.x, width: s.w }}>
+        <div key={s.x} className="absolute top-0 h-5 border-b border-l border-[var(--kt-grid)] leading-5 font-medium whitespace-nowrap text-foreground/75 [clip-path:inset(0)]" style={{ left: s.x, width: s.w }}>
           {/* Sticks beside the task column, so the month in view is always named. */}
           <span className="sticky inline-block px-1.5" style={{ left: stickyLeft }}>
             {s.label}
@@ -832,16 +816,15 @@ function TimeHeader({ first, nDays, dayW, scale, today, stickyLeft }: { first: n
           key={c.x}
           title={c.title}
           className={cn(
-            'absolute top-5 flex h-7 flex-col items-center justify-center overflow-hidden border-l border-border/60 leading-none tabular-nums',
-            scale !== 'day' && 'items-start px-1',
-            c.tone === 'off' && 'text-destructive',
-            c.tone === 'sat' && 'text-[#2f6fb3] dark:text-[#7fb2e6]',
+            'absolute top-5 grid h-5 place-items-center overflow-hidden border-l border-[var(--kt-grid)] text-[11px] leading-none tabular-nums',
+            scale !== 'day' && 'place-items-start px-1 pt-1',
+            c.tone === 'off' && 'bg-[var(--kt-sun)] text-destructive',
+            c.tone === 'sat' && 'bg-[var(--kt-sat)] text-[#2f6fb3] dark:text-[#7fb2e6]',
             c.today && 'font-bold text-primary',
           )}
           style={{ left: c.x, width: c.w }}
         >
-          <span className={cn(c.today && scale === 'day' && 'grid size-[18px] place-items-center rounded-full bg-primary text-primary-foreground')}>{c.label}</span>
-          {c.sub && <span className="mt-0.5 text-[9px] opacity-80">{c.sub}</span>}
+          <span className={cn(c.today && scale === 'day' && 'grid h-4 min-w-4 place-items-center rounded-sm bg-primary px-0.5 text-primary-foreground')}>{c.label}</span>
         </div>
       ))}
     </div>
@@ -852,13 +835,13 @@ function CalendarBackdrop({ first, nDays, dayW, scale }: { first: number; nDays:
   const cells = []
   for (let i = 0; i < nDays; i++) {
     const day = first + i
-    const off = isOffDay(day)
+    const w = weekdayOf(day)
     const monthStart = isoOf(day).endsWith('-01')
-    const monday = weekdayOf(day) === 1
-    if (off && scale !== 'month')
-      cells.push(<div key={`o${i}`} className={cn('absolute inset-y-0', holidayOf(day) || weekdayOf(day) === 0 ? 'bg-destructive/[0.07]' : 'bg-foreground/[0.045]')} style={{ left: i * dayW, width: dayW }} />)
-    if (monthStart || (scale === 'day' && monday) || (scale === 'week' && monday))
-      cells.push(<div key={`l${i}`} className={cn('absolute inset-y-0 w-px', monthStart ? 'bg-border' : 'bg-border/50')} style={{ left: i * dayW }} />)
+    if (scale !== 'month' && isOffDay(day))
+      cells.push(<div key={`o${i}`} className={cn('absolute inset-y-0', w === 6 && !holidayOf(day) ? 'bg-[var(--kt-sat)]' : 'bg-[var(--kt-sun)]')} style={{ left: i * dayW, width: dayW }} />)
+    // A line for every day, like squared paper; weekly and monthly views keep only the bigger steps.
+    if (scale === 'day' || monthStart || (scale === 'week' && w === 1))
+      cells.push(<div key={`l${i}`} className={cn('absolute inset-y-0 w-px', monthStart ? 'bg-foreground/20' : 'bg-[var(--kt-grid)]')} style={{ left: i * dayW }} />)
   }
   return <>{cells}</>
 }

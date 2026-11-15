@@ -380,6 +380,19 @@ export const en = {
   "kt.after": "Predecessors",
   "kt.afterAdd": "+ Add a predecessor",
   "kt.afterHint": "This task starts after these finish.",
+  "kt.start": "start",
+  "kt.end": "end",
+  "kt.new": "New",
+  "kt.saveNow": "Save",
+  "kt.saved": "Saved and synced",
+  "kt.download": "Download",
+  "kt.dlExcel": "Excel schedule (.xlsx)",
+  "kt.dlCsv": "CSV (.csv)",
+  "kt.showInfo": "Show task info",
+  "kt.showInazuma": "Progress line",
+  "kt.sheetTitle": "Schedule",
+  "kt.exporting": "Preparing the file…",
+  "kt.exportFailed": "Couldn't create the file.",
 } as const
 
 export type MessageKey = keyof typeof en

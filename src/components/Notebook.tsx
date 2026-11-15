@@ -76,8 +76,6 @@ export function Notebook({ dek }: { dek: CryptoKey }) {
   }, [allStore.notes])
   const store = { ...allStore, notes: plainNotes }
   const [mode, setModeState] = useState<Mode>(readMode)
-  /** The schedule renders its own filter row here, inside the header. */
-  const [kouteiNav, setKouteiNav] = useState<HTMLDivElement | null>(null)
   const setMode = (m: Mode) => {
     transition(() => setModeState(m))
     try {
@@ -607,11 +605,10 @@ export function Notebook({ dek }: { dek: CryptoKey }) {
             <Chip active={view.kind === 'trash'} onClick={() => go({ kind: 'trash' })} count={counts.trash} icon={<Trash2 />} label={t('nb.trash')} />
           </ul>
         </nav>}
-        {mode === 'koutei' && <div ref={setKouteiNav} />}
       </header>
 
       {mode === 'koutei' ? (
-        <Koutei store={allStore} taskNotes={taskNotes} query={appliedQuery} navSlot={kouteiNav} />
+        <Koutei store={allStore} taskNotes={taskNotes} query={appliedQuery} />
       ) : (<>
 
       <main className="mx-auto max-w-[84rem] px-3 pt-6 pb-32 sm:px-6">

@@ -63,6 +63,7 @@
     "@tanstack/markdown": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "exceljs": "4.4.0",
     "hash-wasm": "^4.13.0",
     "hono": "^4.13.18",
     "idb": "^8.0.4",

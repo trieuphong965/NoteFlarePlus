@@ -638,20 +638,28 @@ textarea,
 .kt-daypicker .kt-saturday:not(.rdp-range_start, .rdp-range_end) { color: #2f6fb3; }
 .dark .kt-daypicker .kt-saturday:not(.rdp-range_start, .rdp-range_end) { color: #7fb2e6; }
 
-/* Schedule chart colours */
+/* Schedule chart colours (teal theme) */
 :root {
-  --kt-bar: oklch(0.66 0.12 248);
-  --kt-summary: oklch(0.7 0.01 260);
-  --kt-summary-track: oklch(0.9 0.005 260);
-  --kt-link: oklch(0.58 0.13 150);
+  --kt-head: oklch(0.955 0.014 195);
+  --kt-grid: oklch(0.9 0.008 195);
+  --kt-bar: oklch(0.66 0.09 192);
+  --kt-summary: oklch(0.68 0.01 230);
+  --kt-summary-track: oklch(0.9 0.006 230);
+  --kt-link: oklch(0.5 0.11 265);
   --kt-link-bad: oklch(0.7 0.16 60);
-  --kt-folder: oklch(0.72 0.13 75);
+  --kt-folder: oklch(0.45 0.02 230);
+  --kt-sat: oklch(0.6 0.09 250 / 0.09);
+  --kt-sun: oklch(0.62 0.15 20 / 0.09);
 }
 .dark {
-  --kt-bar: oklch(0.7 0.11 248);
-  --kt-summary: oklch(0.55 0.01 260);
-  --kt-summary-track: oklch(0.33 0.01 260);
-  --kt-link: oklch(0.72 0.14 150);
+  --kt-head: oklch(0.27 0.014 195);
+  --kt-grid: oklch(0.31 0.008 195);
+  --kt-bar: oklch(0.68 0.085 192);
+  --kt-summary: oklch(0.58 0.01 230);
+  --kt-summary-track: oklch(0.34 0.008 230);
+  --kt-link: oklch(0.72 0.1 265);
   --kt-link-bad: oklch(0.78 0.15 65);
-  --kt-folder: oklch(0.78 0.12 80);
+  --kt-folder: oklch(0.78 0.02 230);
+  --kt-sat: oklch(0.6 0.09 250 / 0.13);
+  --kt-sun: oklch(0.62 0.15 20 / 0.13);
 }
