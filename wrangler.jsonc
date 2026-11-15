@@ -7,6 +7,8 @@
 
   // Served at noteflare.<your-subdomain>.workers.dev. Per-version preview URLs are off:
   // they are extra hostnames your Access application would not cover.
+  // The app lives on its own domain, behind the Access application for note.phonglab.uk.
+  "routes": [{ "pattern": "note.phonglab.uk", "custom_domain": true }],
   "workers_dev": true,
   "preview_urls": false,
 
