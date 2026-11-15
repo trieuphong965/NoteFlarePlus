@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildRows,
+  linksOf,
+  predecessorOptions,
   dayOf,
   holidayOf,
   inazumaPoint,
@@ -33,6 +35,7 @@ describe('task body', () => {
       progress: 40,
       owner: 'フォン',
       milestone: true,
+      after: ['x1', 'x2'],
       memo: 'line 1\n---\nline 3',
     }
     const body = taskBody(fields)
@@ -47,7 +50,7 @@ describe('task body', () => {
   })
 
   it('merges edits to different fields from two devices', () => {
-    const base = taskBody({ parentId: null, planStart: '2026-11-16', planEnd: '2026-11-20', actualStart: null, actualEnd: null, progress: 0, owner: '', milestone: false, memo: '' })
+    const base = taskBody({ parentId: null, planStart: '2026-11-16', planEnd: '2026-11-20', actualStart: null, actualEnd: null, progress: 0, owner: '', milestone: false, after: [], memo: '' })
     const phone = base.replace('progress: 0', 'progress: 60')
     const pc = base.replace('plan: 2026-11-16 ~ 2026-11-20', 'plan: 2026-11-16 ~ 2026-11-25')
     const merged = mergeText(base, phone, pc)
@@ -97,5 +100,22 @@ describe('rows', () => {
     expect(inazumaPoint(rows[1], today)).toBe(today + 0.5) // finished
     expect(inazumaPoint(rows[3], today)).toBe(today + 0.5) // not started yet
     expect(isLate(rows[3], today)).toBe(false)
+  })
+})
+
+describe('dependencies', () => {
+  it('reads old tasks without the field, and lists valid links', () => {
+    expect(parseTaskBody('%koutei v1\nprogress: 10').after).toEqual([])
+    const ts = [task('a'), task('b', { after: ['a', 'gone', 'b'] }), task('c', { after: ['b'] })]
+    expect(linksOf(ts)).toEqual([
+      { from: 'a', to: 'b' },
+      { from: 'b', to: 'c' },
+    ])
+  })
+
+  it('never offers a predecessor that would make a loop', () => {
+    const ts = [task('a'), task('b', { after: ['a'] }), task('c', { after: ['b'] }), task('d')]
+    expect(predecessorOptions(ts, 'a').map((t) => t.id)).toEqual(['d'])
+    expect(predecessorOptions(ts, 'c').map((t) => t.id)).toEqual(['a', 'b', 'd'])
   })
 })

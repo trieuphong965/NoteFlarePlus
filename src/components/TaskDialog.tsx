@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowDown, ArrowUp, Diamond, ListPlus, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Diamond, ListPlus, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { NOTE_COLORS } from '@/lib/crypto'
 import { cn } from '@/lib/utils'
-import { dayOf, subtreeIds, todayIso, type Row, type Task } from '@/lib/tasks'
+import { dayOf, predecessorOptions, subtreeIds, todayIso, type Row, type Task } from '@/lib/tasks'
 import { useI18n } from '@/i18n'
 import { colorVar } from './noteColors'
 import { DateRangeField } from './DateRangeField'
@@ -33,6 +33,17 @@ export function TaskDialog({ row, rows, isNew, onClose, onSave, onDelete, onAddC
     const banned = new Set(subtreeIds(rows.map((r) => r.task), row.task.id))
     return rows.filter((r) => !banned.has(r.task.id))
   }, [row, rows])
+
+  // Predecessors: no loops, nothing inside this task, none of its parents.
+  const preds = useMemo(() => {
+    if (!row) return []
+    const tasks = rows.map((r) => r.task)
+    const ok = new Set(predecessorOptions(tasks, row.task.id).map((t) => t.id))
+    for (const id of subtreeIds(tasks, row.task.id)) ok.delete(id)
+    for (let p = row.task.parentId; p; p = tasks.find((t) => t.id === p)?.parentId ?? null) ok.delete(p)
+    return rows.filter((r) => ok.has(r.task.id))
+  }, [row, rows])
+  const byId = useMemo(() => new Map(rows.map((r) => [r.task.id, r])), [rows])
 
   if (!row || !draft) return <Dialog open={false} />
   const summary = row.hasChildren
@@ -93,6 +104,47 @@ export function TaskDialog({ row, rows, isNew, onClose, onSave, onDelete, onAddC
             <Field label={t('kt.owner')}>
               <Input value={draft.owner} onChange={(e) => set({ owner: e.target.value })} />
             </Field>
+          </div>
+
+          {/* A group, not a <label>: a label would forward clicks to the first chip's remove button. */}
+          <div role="group" aria-label={t('kt.after')} className="grid gap-1.5 text-sm">
+            <span className="font-medium text-muted-foreground">{t('kt.after')}</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {draft.after.map((id) => {
+                const r = byId.get(id)
+                if (!r) return null
+                return (
+                  <span key={id} className="flex h-8 max-w-full items-center gap-1 rounded-full border bg-surface pr-1 pl-3 text-sm">
+                    <span className="font-mono text-xs text-muted-foreground">{r.wbs}</span>
+                    <span className="truncate">{r.task.name || t('kt.untitled')}</span>
+                    <button
+                      type="button"
+                      aria-label={t('kt.clear')}
+                      onClick={() => set({ after: draft.after.filter((a) => a !== id) })}
+                      className="grid size-6 place-items-center rounded-full text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </span>
+                )
+              })}
+              <select
+                value=""
+                aria-label={t('kt.afterAdd')}
+                onChange={(e) => e.target.value && set({ after: [...draft.after, e.target.value] })}
+                className="h-8 max-w-full min-w-0 rounded-full border border-dashed border-input bg-transparent px-3 text-sm text-muted-foreground outline-none hover:border-foreground/40 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                <option value="">{t('kt.afterAdd')}</option>
+                {preds
+                  .filter((r) => !draft.after.includes(r.task.id))
+                  .map((r) => (
+                    <option key={r.task.id} value={r.task.id}>
+                      {'\u3000'.repeat(r.depth)}
+                      {r.wbs} {r.task.name || t('kt.untitled')}
+                    </option>
+                  ))}
+              </select>
+            </div>
           </div>
 
           {summary ? (

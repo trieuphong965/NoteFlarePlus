@@ -372,4 +372,9 @@ export const ja: Record<MessageKey, string> = {
   "kt.quickWeek": "1週間",
   "kt.quickWeeks": "{n}週間",
   "kt.quickMonth": "1か月",
+  "kt.info": "タスク情報",
+  "kt.colEdit": "編集",
+  "kt.after": "先行作業",
+  "kt.afterAdd": "＋ 先行作業を追加",
+  "kt.afterHint": "これらの作業が終わってから開始します。",
 }

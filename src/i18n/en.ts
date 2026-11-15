@@ -375,6 +375,11 @@ export const en = {
   "kt.quickWeek": "1 week",
   "kt.quickWeeks": "{n} weeks",
   "kt.quickMonth": "1 month",
+  "kt.info": "Task info",
+  "kt.colEdit": "Edit",
+  "kt.after": "Predecessors",
+  "kt.afterAdd": "+ Add a predecessor",
+  "kt.afterHint": "This task starts after these finish.",
 } as const
 
 export type MessageKey = keyof typeof en

@@ -27,6 +27,8 @@ export interface Task {
   progress: number
   owner: string
   milestone: boolean
+  /** Predecessors (依存関係): ids of tasks that must finish before this one starts. */
+  after: string[]
   memo: string
   color: NoteColor
   position: number
@@ -69,6 +71,7 @@ export function parseTaskBody(body: string) {
     progress: Number.isFinite(progress) ? Math.min(100, Math.max(0, progress)) : 0,
     owner: f.owner ?? '',
     milestone: f.milestone === 'yes',
+    after: (f.after ?? '').split(',').map((x) => x.trim()).filter(Boolean),
     memo,
   }
 }
@@ -82,6 +85,7 @@ export function taskBody(t: Omit<Task, 'id' | 'name' | 'color' | 'position' | 't
     `progress: ${t.progress}`,
     `owner: ${t.owner.replace(/\n/g, ' ')}`,
     `milestone: ${t.milestone ? 'yes' : 'no'}`,
+    `after: ${t.after.join(',')}`,
     '---',
     t.memo,
   ].join('\n')
@@ -120,6 +124,7 @@ export function newTaskNote(fields: Partial<Task> & { position: number }): Note 
     progress: 0,
     owner: '',
     milestone: false,
+    after: [],
     memo: '',
     color: 'default',
     trashedAt: null,
@@ -292,4 +297,34 @@ export function inazumaPoint(r: Pick<Row, 'planStart' | 'planEnd' | 'progress'>,
   if (r.progress >= 100) return now
   if (r.progress <= 0 && s > today) return now
   return s + span(r.planStart, r.planEnd) * (r.progress / 100)
+}
+
+// ------------------------------------------------------------------ dependencies
+
+export interface Link {
+  from: string
+  to: string
+}
+
+/** Finish-to-start links between live tasks, skipping missing ids and self-links. */
+export function linksOf(tasks: Task[]): Link[] {
+  const live = new Set(tasks.filter((t) => !t.trashedAt).map((t) => t.id))
+  const out: Link[] = []
+  for (const t of tasks) {
+    if (t.trashedAt) continue
+    for (const p of new Set(t.after)) if (p !== t.id && live.has(p)) out.push({ from: p, to: t.id })
+  }
+  return out
+}
+
+/** Tasks that may become a predecessor of `id` without creating a loop. */
+export function predecessorOptions(tasks: Task[], id: string): Task[] {
+  // Anything that (transitively) depends on `id` would close a cycle.
+  const blocked = new Set([id])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const t of tasks) if (!blocked.has(t.id) && t.after.some((a) => blocked.has(a))) (blocked.add(t.id), (grew = true))
+  }
+  return tasks.filter((t) => !t.trashedAt && !blocked.has(t.id))
 }

@@ -377,4 +377,9 @@ export const vi: Record<MessageKey, string> = {
   "kt.quickWeek": "1 tuần",
   "kt.quickWeeks": "{n} tuần",
   "kt.quickMonth": "1 tháng",
+  "kt.info": "Thông tin",
+  "kt.colEdit": "Thao tác",
+  "kt.after": "Việc làm trước",
+  "kt.afterAdd": "+ Thêm việc làm trước",
+  "kt.afterHint": "Việc này bắt đầu sau khi các việc dưới đây xong.",
 }

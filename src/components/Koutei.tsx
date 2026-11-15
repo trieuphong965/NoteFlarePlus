@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, Crosshair, Plus, Zap } from 'lucide-react'
+import { ChevronRight, CirclePlus, Crosshair, FileText, Folder, FolderOpen, Pencil, Plus, Tags, Trash2, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -14,6 +14,7 @@ import {
   isLate,
   isOffDay,
   isoOf,
+  linksOf,
   newTaskNote,
   noteToTask,
   subtreeIds,
@@ -30,14 +31,16 @@ import { TaskDialog } from './TaskDialog'
 import { Chip } from './Chip'
 
 type Scale = 'day' | 'week' | 'month'
-const DAY_W: Record<Scale, number> = { day: 28, week: 11, month: 4 }
-const ROW_H = 36
+const DAY_W: Record<Scale, number> = { day: 26, week: 10, month: 3.5 }
+const ROW_H = 30
 const HEAD_H = 48
 const PREFS_KEY = 'noteflare:koutei'
 
 interface Prefs {
   scale: Scale
   inazuma: boolean
+  /** Name, dates and owner beside each bar (タスク情報を表示). */
+  info: boolean
   collapsed: string[]
 }
 
@@ -47,10 +50,11 @@ function readPrefs(): Prefs {
     return {
       scale: p.scale === 'week' || p.scale === 'month' ? p.scale : 'day',
       inazuma: p.inazuma !== false,
+      info: p.info !== false,
       collapsed: Array.isArray(p.collapsed) ? p.collapsed : [],
     }
   } catch {
-    return { scale: 'day', inazuma: true, collapsed: [] }
+    return { scale: 'day', inazuma: true, info: true, collapsed: [] }
   }
 }
 
@@ -98,18 +102,19 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
   }, [])
 
   const narrow = useNarrow()
-  const leftW = narrow ? 190 : 420
+  const leftW = narrow ? 172 : 344
 
   // ---------------------------------------------------------------- range
   const [first, last] = useMemo(() => {
     const days = [today]
     for (const r of rows) for (const d of [r.planStart, r.planEnd, r.actualStart, r.actualEnd]) if (d) days.push(dayOf(d))
-    let a = Math.min(...days) - 7
+    // Room on the left for the name beside the earliest bar.
+    let a = Math.min(...days) - (prefs.info ? 21 : 7)
     a -= (weekdayOf(a) + 6) % 7 // back to Monday
     const minDays = Math.ceil(1600 / dayW)
     const b = Math.max(Math.max(...days) + 28, a + minDays)
     return [a, b]
-  }, [rows, today, dayW])
+  }, [rows, today, dayW, prefs.info])
   const nDays = last - first + 1
   const width = nDays * dayW
   const xOf = useCallback((day: number) => (day - first) * dayW, [first, dayW])
@@ -287,7 +292,13 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
           </li>
         )}
         <Chip active={false} onClick={() => scrollToToday(true)} icon={<Crosshair />} label={t('kt.today')} />
+        <Chip active={prefs.info} pressed={prefs.info} morph={false} onClick={() => setPrefs({ info: !prefs.info })} icon={<Tags />} label={t('kt.info')} />
         <Chip active={prefs.inazuma} pressed={prefs.inazuma} morph={false} onClick={() => setPrefs({ inazuma: !prefs.inazuma })} icon={<Zap />} label={t('kt.inazuma')} />
+        <li className="max-sm:hidden">
+          <Button size="sm" className="h-9 rounded-full px-4" onClick={() => create({})}>
+            <Plus /> {t('kt.add')}
+          </Button>
+        </li>
       </ul>
     </nav>
   )
@@ -297,7 +308,7 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
       type="button"
       onClick={() => create({})}
       className={cn(
-        'group fixed right-[calc(1.25rem+env(safe-area-inset-right))] bottom-[calc(1.25rem+env(safe-area-inset-bottom))] z-30 flex h-14 items-center gap-2 rounded-2xl bg-primary pr-5 pl-4 font-medium text-primary-foreground outline-none sm:right-[calc(2rem+env(safe-area-inset-right))] sm:bottom-[calc(2rem+env(safe-area-inset-bottom))]',
+        'group fixed right-[calc(1.25rem+env(safe-area-inset-right))] bottom-[calc(1.25rem+env(safe-area-inset-bottom))] z-30 flex h-14 sm:hidden items-center gap-2 rounded-2xl bg-primary pr-5 pl-4 font-medium text-primary-foreground outline-none sm:right-[calc(2rem+env(safe-area-inset-right))] sm:bottom-[calc(2rem+env(safe-area-inset-bottom))]',
         'shadow-[0_10px_30px_-10px_color-mix(in_oklab,var(--primary)_80%,transparent)] transition-[transform,box-shadow] duration-200 ease-[var(--ease-out)]',
         'hover:-translate-y-0.5 hover:shadow-[0_14px_34px_-10px_color-mix(in_oklab,var(--flare)_70%,transparent)] active:translate-y-0 active:scale-[0.97]',
         'focus-visible:ring-[3px] focus-visible:ring-ring/50',
@@ -345,23 +356,27 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
     )
 
   const bodyH = shown.length * ROW_H
+  const rowIndex = new Map(shown.map((r, i) => [r.task.id, i]))
+  const toggle = (id: string) => setPrefs({ collapsed: collapsed.has(id) ? prefs.collapsed.filter((c) => c !== id) : [...prefs.collapsed, id] })
+  const shownRow = (r: Row) => (drag?.id === r.task.id ? rolled(r, shifted(r.task, drag)) : r)
 
   return (
     <>
       {nav}
-      <section ref={sectionRef} className="mx-auto flex max-w-[84rem] flex-col px-3 pt-4 pb-[calc(5.75rem+env(safe-area-inset-bottom))] sm:px-6 sm:pb-[calc(6.75rem+env(safe-area-inset-bottom))]" style={{ height }}>
+      {/* Full width: the chart is the page. */}
+      <section ref={sectionRef} className="flex flex-col px-2 pt-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-4 sm:pb-4" style={{ height }}>
         {query.trim() && (
-          <p role="status" className="mb-3 px-1 text-sm text-muted-foreground">
+          <p role="status" className="mb-2 px-1 text-sm text-muted-foreground">
             {t('kt.results', { n: shown.length })}
           </p>
         )}
-        <div className="paper relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04),0_10px_24px_-16px_rgb(0_0_0/0.25)]">
+        <div className="paper relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-surface shadow-[0_1px_2px_rgb(0_0_0/0.04),0_10px_24px_-16px_rgb(0_0_0/0.25)]">
           <div ref={scroller} className="relative min-h-0 flex-1 overflow-auto overscroll-x-contain" onPointerMove={onDragMove}>
             <div className="relative flex flex-col" style={{ width: leftW + width, minHeight: '100%' }}>
               {/* ------------------------------------------------ header */}
               <div className="sticky top-0 z-20 flex shrink-0 border-b bg-surface" style={{ height: HEAD_H }}>
                 <div className="sticky left-0 z-10 flex items-end border-r bg-surface text-xs font-medium text-muted-foreground" style={{ width: leftW, minWidth: leftW }}>
-                  <LeftCols narrow={narrow} header />
+                  <LeftHeader narrow={narrow} />
                 </div>
                 <TimeHeader first={first} nDays={nDays} dayW={dayW} scale={prefs.scale} today={today} stickyLeft={leftW} />
               </div>
@@ -378,27 +393,29 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
                   const late = !r.hasChildren && isLate(r, today)
                   return (
                     <div key={r.task.id} className="group flex shrink-0 hover:bg-foreground/[0.035]" style={{ height: ROW_H }}>
-                      <button
-                        type="button"
-                        onClick={() => setEditing({ id: r.task.id, isNew: false })}
-                        className="sticky left-0 z-10 flex items-center border-r border-b border-b-border/60 bg-surface text-left text-sm outline-none group-hover:bg-[color-mix(in_oklab,var(--surface),var(--foreground)_3.5%)] focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
+                      <div
+                        className="sticky left-0 z-10 flex items-center border-r border-b border-b-border/60 bg-surface text-sm group-hover:bg-[color-mix(in_oklab,var(--surface),var(--foreground)_3.5%)]"
                         style={{ width: leftW, minWidth: leftW }}
                       >
-                        <LeftCols
+                        <TreeRow
                           narrow={narrow}
                           row={r}
                           late={late}
                           collapsed={collapsed.has(r.task.id)}
-                          onToggle={() => setPrefs({ collapsed: collapsed.has(r.task.id) ? prefs.collapsed.filter((c) => c !== r.task.id) : [...prefs.collapsed, r.task.id] })}
+                          onToggle={() => toggle(r.task.id)}
+                          onEdit={() => setEditing({ id: r.task.id, isNew: false })}
+                          onAddChild={() => create({ parentId: r.task.id })}
+                          onDelete={() => remove(r.task)}
                         />
-                      </button>
+                      </div>
                       <div className="relative border-b border-b-border/40" style={{ width }}>
                         <Bars
-                          row={drag?.id === r.task.id ? rolled(r, shifted(r.task, drag)) : r}
+                          row={shownRow(r)}
                           xOf={xOf}
                           dayW={dayW}
                           today={today}
                           late={late}
+                          info={prefs.info}
                           dragging={drag?.id === r.task.id}
                           onPointerDown={(e, mode) => startDrag(e, r, mode)}
                           onPointerUp={() => endDrag(r)}
@@ -412,27 +429,61 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
 
                 {/* The task column continues to the bottom, so the calendar never shows through it. */}
                 <div className="sticky left-0 z-10 flex-1 border-r bg-surface" style={{ width: leftW }} />
+
+                {/* ------------------------------------------------ dependency arrows (依存関係) */}
+                <svg aria-hidden className="pointer-events-none absolute top-0 z-[5] overflow-visible" style={{ left: leftW, width, height: bodyH }}>
+                  <defs>
+                    <marker id="kt-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+                      <path d="M0,0 L8,4 L0,8 z" fill="context-stroke" />
+                    </marker>
+                  </defs>
+                  {linksOf(tasks).map(({ from, to }) => {
+                    const i = rowIndex.get(from)
+                    const j = rowIndex.get(to)
+                    if (i === undefined || j === undefined) return null
+                    const a = shownRow(shown[i])
+                    const b = shownRow(shown[j])
+                    if (!a.planEnd || !b.planStart) return null
+                    const x1 = xOf(dayOf(a.planEnd)) + (a.task.milestone && !a.hasChildren ? dayW / 2 + 7 : dayW)
+                    const x2 = xOf(dayOf(b.planStart)) + (b.task.milestone && !b.hasChildren ? dayW / 2 - 8 : 0)
+                    const y1 = i * ROW_H + ROW_H / 2
+                    const y2 = j * ROW_H + ROW_H / 2
+                    const bad = dayOf(b.planStart) <= dayOf(a.planEnd)
+                    return (
+                      <path
+                        key={`${from}>${to}`}
+                        d={linkPath(x1, y1, x2, y2)}
+                        fill="none"
+                        stroke={bad ? 'var(--kt-link-bad)' : 'var(--kt-link)'}
+                        strokeWidth={1.4}
+                        strokeLinejoin="round"
+                        markerEnd="url(#kt-arrow)"
+                      />
+                    )
+                  })}
+                </svg>
+
+                {/* ------------------------------------------------ progress line */}
+                {prefs.inazuma && shown.length > 0 && (
+                  <svg aria-hidden className="pointer-events-none absolute top-0 z-[5] overflow-visible" style={{ left: leftW, width, height: bodyH }}>
+                    <polyline
+                      fill="none"
+                      stroke="var(--destructive)"
+                      strokeWidth={1.75}
+                      strokeLinejoin="round"
+                      points={[
+                        `${todayX},0`,
+                        ...shown.map((r, i) => {
+                          const p = inazumaPoint(r, today)
+                          return `${p === null ? todayX : xOf(0) + p * dayW},${i * ROW_H + ROW_H / 2}`
+                        }),
+                        `${todayX},${bodyH}`,
+                      ].join(' ')}
+                    />
+                  </svg>
+                )}
               </div>
 
-              {/* ------------------------------------------------ progress line */}
-              {prefs.inazuma && shown.length > 0 && (
-                <svg aria-hidden className="pointer-events-none absolute z-[2] overflow-visible" style={{ left: leftW, top: HEAD_H, width, height: bodyH }}>
-                  <polyline
-                    fill="none"
-                    stroke="var(--destructive)"
-                    strokeWidth={1.75}
-                    strokeLinejoin="round"
-                    points={[
-                      `${todayX},0`,
-                      ...shown.map((r, i) => {
-                        const p = inazumaPoint(r, today)
-                        return `${p === null ? todayX : xOf(0) + p * dayW},${i * ROW_H + ROW_H / 2}`
-                      }),
-                      `${todayX},${bodyH}`,
-                    ].join(' ')}
-                  />
-                </svg>
-              )}
             </div>
           </div>
           <Legend inazuma={prefs.inazuma} />
@@ -442,6 +493,14 @@ export function Koutei({ store, taskNotes, query, navSlot }: { store: Store; tas
       {dialog}
     </>
   )
+}
+
+/** Finish-to-start connector: out of the predecessor, down, into the successor; around when it starts earlier. */
+function linkPath(x1: number, y1: number, x2: number, y2: number) {
+  const out = x1 + 6
+  if (x2 - 8 >= out) return `M${x1},${y1} H${out} V${y2} H${x2}`
+  const mid = y1 + (y2 > y1 ? ROW_H / 2 : -ROW_H / 2)
+  return `M${x1},${y1} H${out} V${mid} H${x2 - 10} V${y2} H${x2}`
 }
 
 /** The task with a drag applied. */
@@ -459,67 +518,106 @@ const md = (iso: string) => new Intl.DateTimeFormat(dateLocale(), { month: 'nume
 
 const rolled = (r: Row, task: Task): Row => ({ ...r, task, planStart: task.planStart, planEnd: task.planEnd })
 
-// ------------------------------------------------------------------ left columns
+// ------------------------------------------------------------------ task tree
 
-function LeftCols({
+function LeftHeader({ narrow }: { narrow: boolean }) {
+  const { t } = useI18n()
+  return (
+    <div className="flex w-full items-center pb-2">
+      {!narrow && <span className="w-11 shrink-0 px-2">WBS</span>}
+      <span className="flex-1 truncate px-2">{t('kt.colName')}</span>
+      {!narrow && <span className="w-[5.25rem] shrink-0 px-2 text-center">{t('kt.colEdit')}</span>}
+    </div>
+  )
+}
+
+/** One line of the task tree: folder or file icon, name, and edit / add / delete like a file browser. */
+function TreeRow({
   narrow,
-  header,
   row,
   late,
   collapsed,
   onToggle,
+  onEdit,
+  onAddChild,
+  onDelete,
 }: {
   narrow: boolean
-  header?: boolean
-  row?: Row
-  late?: boolean
-  collapsed?: boolean
-  onToggle?: () => void
+  row: Row
+  late: boolean
+  collapsed: boolean
+  onToggle: () => void
+  onEdit: () => void
+  onAddChild: () => void
+  onDelete: () => void
 }) {
   const { t } = useI18n()
-  const cell = 'shrink-0 truncate px-2'
-  if (header || !row)
-    return (
-      <div className="flex w-full items-center pb-2">
-        {!narrow && <span className={cn(cell, 'w-14')}>WBS</span>}
-        <span className={cn(cell, 'flex-1')}>{t('kt.colName')}</span>
-        {!narrow && <span className={cn(cell, 'w-24')}>{t('kt.colOwner')}</span>}
-        {!narrow && <span className={cn(cell, 'w-20 text-right')}>{t('kt.colProgress')}</span>}
-      </div>
-    )
   const task = row.task
+  const Icon = row.hasChildren ? (collapsed ? Folder : FolderOpen) : FileText
   return (
-    <div className="flex w-full min-w-0 items-center">
-      {!narrow && <span className={cn(cell, 'w-14 font-mono text-xs text-muted-foreground')}>{row.wbs}</span>}
-      <span className="flex min-w-0 flex-1 items-center gap-1 pr-2" style={{ paddingLeft: narrow ? 8 + row.depth * 10 : row.depth * 14 }}>
-        {row.hasChildren ? (
-          <span
-            role="button"
-            aria-label={collapsed ? t('kt.expand') : t('kt.collapse')}
-            onClick={(e) => {
-              e.stopPropagation()
-              onToggle?.()
-            }}
-            className="-ml-1 grid size-6 shrink-0 place-items-center rounded hover:bg-foreground/10"
-          >
-            <ChevronRight className={cn('size-4 transition-transform duration-200', !collapsed && 'rotate-90')} />
-          </span>
-        ) : (
-          <span className="size-2.5 shrink-0 rounded-full border" style={{ background: colorVar(task.color) }} />
-        )}
+    <div className="flex h-full w-full min-w-0 items-center">
+      {!narrow && <span className="w-11 shrink-0 truncate px-2 font-mono text-[11px] text-muted-foreground">{row.wbs}</span>}
+      <span className="shrink-0" style={{ width: row.depth * (narrow ? 10 : 14) + (narrow ? 4 : 0) }} />
+      {row.hasChildren ? (
+        <button
+          type="button"
+          aria-label={collapsed ? t('kt.expand') : t('kt.collapse')}
+          aria-expanded={!collapsed}
+          onClick={onToggle}
+          className="grid size-6 shrink-0 place-items-center rounded outline-none hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <ChevronRight className={cn('size-3.5 transition-transform duration-200', !collapsed && 'rotate-90')} />
+        </button>
+      ) : (
+        <span className="w-6 shrink-0" />
+      )}
+      <button
+        type="button"
+        onClick={onEdit}
+        title={task.name || t('kt.untitled')}
+        className="flex h-full min-w-0 flex-1 items-center gap-1.5 pr-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
+      >
+        <Icon
+          className={cn('size-4 shrink-0', row.hasChildren ? 'text-[var(--kt-folder)]' : late ? 'text-destructive' : 'text-muted-foreground')}
+          style={!row.hasChildren && task.color !== 'default' && !late ? { color: `color-mix(in oklab, ${colorVar(task.color)}, var(--foreground) 45%)` } : undefined}
+        />
         <span className={cn('truncate', row.hasChildren && 'font-semibold', !task.name && 'text-muted-foreground italic')}>
-          {task.milestone && '◆ '}
+          {task.milestone && !row.hasChildren && '◆ '}
           {task.name || t('kt.untitled')}
         </span>
         {narrow && <span className={cn('ml-auto shrink-0 text-xs tabular-nums', late ? 'font-semibold text-destructive' : 'text-muted-foreground')}>{row.progress}%</span>}
-      </span>
-      {!narrow && <span className={cn(cell, 'w-24 text-muted-foreground')}>{task.owner}</span>}
+      </button>
       {!narrow && (
-        <span className={cn(cell, 'w-20 text-right tabular-nums', late ? 'font-semibold text-destructive' : row.progress === 100 ? 'text-success' : '')}>
-          {row.progress}%
+        <span className="flex w-[5.25rem] shrink-0 items-center justify-center gap-0.5 opacity-55 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <RowAction label={t('kt.editTitle')} onClick={onEdit}>
+            <Pencil />
+          </RowAction>
+          <RowAction label={t('kt.addChild')} onClick={onAddChild}>
+            <CirclePlus />
+          </RowAction>
+          <RowAction label={t('kt.delete')} onClick={onDelete} danger>
+            <Trash2 />
+          </RowAction>
         </span>
       )}
     </div>
+  )
+}
+
+function RowAction({ label, onClick, danger, children }: { label: string; onClick: () => void; danger?: boolean; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'grid size-6 place-items-center rounded outline-none hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring/50 [&_svg]:size-3.5',
+        danger && 'hover:text-destructive',
+      )}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -531,6 +629,7 @@ function Bars({
   dayW,
   today,
   late,
+  info,
   dragging,
   onPointerDown,
   onPointerUp,
@@ -540,12 +639,14 @@ function Bars({
   dayW: number
   today: number
   late: boolean
+  info: boolean
   dragging: boolean
   onPointerDown: (e: ReactPointerEvent, mode: Drag['mode']) => void
   onPointerUp: () => void
 }) {
   const { t } = useI18n()
   const task = row.task
+  const name = task.name || t('kt.untitled')
   const out = []
 
   if (row.planStart && row.planEnd) {
@@ -553,50 +654,64 @@ function Bars({
     const e = dayOf(row.planEnd)
     const left = xOf(s)
     const w = (e - s + 1) * dayW
-    const label = `${task.name || t('kt.untitled')}\n${t('kt.plan')}: ${row.planStart} ~ ${row.planEnd}\n${t('kt.progress')}: ${row.progress}%`
-    if (task.milestone && !row.hasChildren) {
+    const milestone = task.milestone && !row.hasChildren
+    const range = milestone ? md(row.planEnd) : `${md(row.planStart)}–${md(row.planEnd)}`
+    const title = `${name}\n${t('kt.plan')}: ${row.planStart} ~ ${row.planEnd}\n${t('kt.progress')}: ${row.progress}%${task.owner ? `\n${t('kt.owner')}: ${task.owner}` : ''}`
+    const pctInside = !milestone && w >= 34
+    const start = milestone ? left + dayW / 2 - 7 : left
+    const end = milestone ? left + dayW / 2 + 7 : left + w
+
+    // タスク情報: name and dates to the left of the bar, owner (and % when it doesn't fit) to the right.
+    if (info || dragging)
+      out.push(
+        <span
+          key="l"
+          className={cn('pointer-events-none absolute top-1/2 -translate-y-1/2 pr-1.5 text-[11px] whitespace-nowrap', dragging ? 'font-medium text-primary' : 'text-muted-foreground')}
+          style={{ right: `calc(100% - ${start}px)` }}
+        >
+          {info && <span className={cn(row.hasChildren && 'font-semibold text-foreground/70')}>{name} </span>}[{range}]
+        </span>,
+      )
+    const right = [!pctInside && !milestone ? `${row.progress}%` : '', info ? task.owner : ''].filter(Boolean).join('  ')
+    if (right)
+      out.push(
+        <span key="r" className={cn('pointer-events-none absolute top-1/2 -translate-y-1/2 pl-1.5 text-[11px] whitespace-nowrap tabular-nums', late ? 'font-semibold text-destructive' : 'text-muted-foreground')} style={{ left: end }}>
+          {right}
+        </span>,
+      )
+
+    if (milestone) {
       out.push(
         <div
           key="m"
-          title={label}
+          title={title}
           onPointerDown={(ev) => onPointerDown(ev, 'move')}
           onPointerUp={onPointerUp}
-          className={cn('absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rotate-45 cursor-grab border-2 border-foreground', row.progress === 100 ? 'bg-foreground' : 'bg-background', dragging && 'cursor-grabbing ring-2 ring-primary')}
+          className={cn('absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rotate-45 cursor-grab border-2 border-foreground', row.progress === 100 ? 'bg-foreground' : 'bg-surface', dragging && 'cursor-grabbing ring-2 ring-primary')}
           style={{ left: left + dayW / 2 }}
         />,
       )
-      out.push(
-        <span key="ml" className="pointer-events-none absolute top-1/2 -translate-y-1/2 text-[11px] whitespace-nowrap text-muted-foreground" style={{ left: left + dayW / 2 + 12 }}>
-          {md(row.planEnd)}
-        </span>,
-      )
     } else if (row.hasChildren) {
-      // Summary: a dark bracket bar, filled to the rolled-up progress.
+      // Summary: grey, filled to the rolled-up progress.
       out.push(
-        <div key="s" title={label} onPointerDown={(ev) => onPointerDown(ev, 'move')} onPointerUp={onPointerUp} className="absolute top-[11px] h-2 cursor-pointer" style={{ left, width: w }}>
-          <div className="absolute inset-0 rounded-[2px] bg-foreground/25" />
-          <div className="absolute inset-y-0 left-0 rounded-[2px] bg-foreground/80" style={{ width: `${row.progress}%` }} />
-          <div className="absolute top-0 left-0 h-3.5 w-1.5 bg-foreground/80 [clip-path:polygon(0_0,100%_0,0_100%)]" />
-          <div className="absolute top-0 right-0 h-3.5 w-1.5 bg-foreground/80 [clip-path:polygon(0_0,100%_0,100%_100%)]" />
+        <div key="s" title={title} onPointerDown={(ev) => onPointerDown(ev, 'move')} onPointerUp={onPointerUp} className="absolute top-[7px] h-4 cursor-pointer overflow-hidden rounded-[3px] bg-[var(--kt-summary-track)]" style={{ left, width: w }}>
+          <div className="h-full bg-[var(--kt-summary)]" style={{ width: `${row.progress}%` }} />
+          {pctInside && <span className="absolute inset-0 grid place-items-center text-[10.5px] leading-none font-semibold tabular-nums text-foreground/85">{row.progress}%</span>}
         </div>,
       )
     } else {
-      const tint = task.color === 'default' ? 'var(--primary)' : `color-mix(in oklab, ${colorVar(task.color)}, var(--foreground) 35%)`
+      const tint = late ? 'var(--destructive)' : task.color === 'default' ? 'var(--kt-bar)' : `color-mix(in oklab, ${colorVar(task.color)}, var(--foreground) 35%)`
       out.push(
         <div
           key="p"
-          title={label}
+          title={title}
           onPointerDown={(ev) => onPointerDown(ev, 'move')}
           onPointerUp={onPointerUp}
-          className={cn('absolute top-[7px] h-3 cursor-grab overflow-hidden rounded-[3px] border', dragging && 'cursor-grabbing shadow-md ring-2 ring-primary/60')}
-          style={{
-            left,
-            width: w,
-            borderColor: `color-mix(in oklab, ${tint}, transparent 30%)`,
-            background: `color-mix(in oklab, ${tint}, transparent 78%)`,
-          }}
+          className={cn('absolute top-[6px] h-[18px] cursor-grab overflow-hidden rounded-[3px] border', dragging && 'cursor-grabbing shadow-md ring-2 ring-primary/60')}
+          style={{ left, width: w, borderColor: `color-mix(in oklab, ${tint}, transparent 35%)`, background: `color-mix(in oklab, ${tint}, transparent 80%)` }}
         >
-          <div className="h-full" style={{ width: `${row.progress}%`, background: late ? 'var(--destructive)' : tint }} />
+          <div className="h-full" style={{ width: `${row.progress}%`, background: `color-mix(in oklab, ${tint}, transparent 18%)` }} />
+          {pctInside && <span className="pointer-events-none absolute inset-0 grid place-items-center text-[10.5px] leading-none font-semibold tabular-nums text-foreground/85">{row.progress}%</span>}
           {w >= 24 && (
             <>
               <span onPointerDown={(ev) => onPointerDown(ev, 'start')} className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize" />
@@ -606,15 +721,9 @@ function Bars({
         </div>,
       )
     }
-    if (!task.milestone || row.hasChildren)
-      out.push(
-        <span key="pct" className={cn('pointer-events-none absolute top-[3px] text-[11px] whitespace-nowrap tabular-nums', late ? 'font-semibold text-destructive' : 'text-muted-foreground')} style={{ left: left + w + 6 }}>
-          {row.progress}%{dragging && ` · ${md(row.planStart)}–${md(row.planEnd)}`}
-        </span>,
-      )
   }
 
-  // 実績: a solid bar under the plan; still running = up to today.
+  // 実績: a thin line under the bar; still running = up to today.
   if (row.actualStart && !(task.milestone && !row.hasChildren)) {
     const s = dayOf(row.actualStart)
     const e = row.actualEnd ? dayOf(row.actualEnd) : Math.max(s, today)
@@ -622,7 +731,7 @@ function Bars({
       <div
         key="a"
         title={`${t('kt.actual')}: ${row.actualStart} ~ ${row.actualEnd ?? '…'}`}
-        className={cn('pointer-events-none absolute top-[22px] h-[7px] rounded-[2px]', row.actualEnd ? 'bg-success' : 'bg-[linear-gradient(to_right,var(--success)_70%,transparent)]')}
+        className={cn('pointer-events-none absolute top-[25px] h-[3px] rounded-full', row.actualEnd ? 'bg-success' : 'bg-[linear-gradient(to_right,var(--success)_70%,transparent)]')}
         style={{ left: xOf(s), width: (e - s + 1) * dayW }}
       />,
     )
@@ -636,12 +745,19 @@ function Legend({ inazuma }: { inazuma: boolean }) {
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t px-4 py-2 text-xs text-muted-foreground">
       <span className="flex items-center gap-1.5">
-        <span className="h-2.5 w-6 rounded-[2px] border border-primary/70 bg-[linear-gradient(to_right,var(--primary)_50%,color-mix(in_oklab,var(--primary),transparent_78%)_50%)]" />
+        <span className="h-2.5 w-6 rounded-[2px] border border-[var(--kt-bar)] bg-[linear-gradient(to_right,var(--kt-bar)_50%,color-mix(in_oklab,var(--kt-bar),transparent_80%)_50%)]" />
         {t('kt.plan')}
       </span>
       <span className="flex items-center gap-1.5">
-        <span className="h-[7px] w-6 rounded-[2px] bg-success" />
+        <span className="h-[3px] w-6 rounded-full bg-success" />
         {t('kt.actual')}
+      </span>
+      <span className="flex items-center gap-1.5">
+        <svg viewBox="0 0 24 12" className="h-3 w-6 overflow-visible" aria-hidden>
+          <path d="M0,2 H6 V10 H22" fill="none" stroke="var(--kt-link)" strokeWidth={1.4} />
+          <path d="M19,7 L24,10 L19,13 z" fill="var(--kt-link)" />
+        </svg>
+        {t('kt.after')}
       </span>
       <span className="flex items-center gap-1.5">
         <span className="size-2.5 rotate-45 border-[1.5px] border-foreground" />
