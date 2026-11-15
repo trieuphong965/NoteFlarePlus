@@ -1,0 +1,50 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "noteflare",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-30",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Served at noteflare.<your-subdomain>.workers.dev. Per-version preview URLs are off:
+  // they are extra hostnames your Access application would not cover.
+  "workers_dev": true,
+  "preview_urls": false,
+
+  // The React SPA builds into ./dist; the Worker runs first only for /api/*
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "noteflare",
+      // No database_id needed: the first `wrangler deploy` creates the database
+      // and writes its id here (Wrangler ≥ 4.45, automatic resource provisioning).
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Optional: encrypted image attachments. Uncomment to let notes carry images; the
+  // first deploy creates the bucket. R2 must be enabled on your Cloudflare account
+  // (free for the first 10 GB, but it asks for a payment method), which is why it is off by default.
+  // "r2_buckets": [{ "binding": "ATTACHMENTS", "bucket_name": "noteflare-attachments" }],
+
+  "vars": {
+    // e.g. https://your-team.cloudflareaccess.com
+    "ACCESS_TEAM_DOMAIN": "",
+    // The Access application's "Application Audience (AUD) Tag"
+    "ACCESS_AUD": "",
+    // Optional second lock on top of the Access policy: emails or "@domain", comma-separated.
+    "ALLOWED_EMAILS": "",
+    // Where to look for new releases ("owner/repo"). Use your fork, or "off" to disable.
+    "UPDATE_CHECK_REPO": "homielab/noteflare"
+  },
+
+  // Empty the trash: permanently delete notes trashed more than 30 days ago
+  "triggers": { "crons": ["17 3 * * *"] },
+
+  "observability": { "enabled": true }
+}
