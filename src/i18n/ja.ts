@@ -364,4 +364,12 @@ export const ja: Record<MessageKey, string> = {
   'kt.search': '作業を検索',
   'kt.results': '{n} 件の作業',
   'kt.weekdays': '日,月,火,水,木,金,土',
+  "kt.clear": "クリア",
+  "kt.pickStart": "開始日を選択",
+  "kt.pickEnd": "終了日を選択",
+  "kt.pickDay": "日付を選択",
+  "kt.quickDays": "{n}日間",
+  "kt.quickWeek": "1週間",
+  "kt.quickWeeks": "{n}週間",
+  "kt.quickMonth": "1か月",
 }

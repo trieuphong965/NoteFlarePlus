@@ -367,6 +367,14 @@ export const en = {
   "kt.emptySearch": "No tasks contain “{q}”.",
   "kt.results": "{n} tasks",
   "kt.weekdays": "Su,Mo,Tu,We,Th,Fr,Sa",
+  "kt.clear": "Clear",
+  "kt.pickStart": "Pick the start date",
+  "kt.pickEnd": "Now pick the end date",
+  "kt.pickDay": "Pick a date",
+  "kt.quickDays": "{n} days",
+  "kt.quickWeek": "1 week",
+  "kt.quickWeeks": "{n} weeks",
+  "kt.quickMonth": "1 month",
 } as const
 
 export type MessageKey = keyof typeof en

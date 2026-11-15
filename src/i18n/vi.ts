@@ -369,4 +369,12 @@ export const vi: Record<MessageKey, string> = {
   "kt.emptySearch": "Không có công việc nào chứa “{q}”.",
   "kt.results": "{n} công việc",
   "kt.weekdays": "CN,T2,T3,T4,T5,T6,T7",
+  "kt.clear": "Xoá",
+  "kt.pickStart": "Chọn ngày bắt đầu",
+  "kt.pickEnd": "Chọn ngày kết thúc",
+  "kt.pickDay": "Chọn ngày",
+  "kt.quickDays": "{n} ngày",
+  "kt.quickWeek": "1 tuần",
+  "kt.quickWeeks": "{n} tuần",
+  "kt.quickMonth": "1 tháng",
 }

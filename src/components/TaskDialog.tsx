@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { dayOf, subtreeIds, todayIso, type Row, type Task } from '@/lib/tasks'
 import { useI18n } from '@/i18n'
 import { colorVar } from './noteColors'
+import { DateRangeField } from './DateRangeField'
 
 interface Props {
   row: Row | null
@@ -59,7 +60,8 @@ export function TaskDialog({ row, rows, isNew, onClose, onSave, onDelete, onAddC
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-xl">
+      {/* Tall content scrolls inside the dialog; the action bar stays visible at the bottom. */}
+      <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-xl overflow-y-auto overscroll-contain pb-0 max-sm:pb-0">
         <form onSubmit={submit} className="grid gap-4">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -99,17 +101,27 @@ export function TaskDialog({ row, rows, isNew, onClose, onSave, onDelete, onAddC
             </p>
           ) : (
             <>
-              <Field label={`${t('kt.plan')} ${days(draft.planStart, draft.planEnd)}`}>
-                <DateRange
-                  start={draft.milestone ? draft.planEnd : draft.planStart}
-                  end={draft.planEnd}
-                  single={draft.milestone}
-                  onChange={(planStart, planEnd) => set({ planStart, planEnd })}
-                />
-              </Field>
-              <Field label={`${t('kt.actual')} ${days(draft.actualStart, draft.actualEnd)}`}>
-                <DateRange start={draft.actualStart} end={draft.actualEnd} onChange={(actualStart, actualEnd) => set({ actualStart, actualEnd })} />
-              </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={`${draft.milestone ? t('kt.milestone') : t('kt.plan')} ${draft.milestone ? '' : days(draft.planStart, draft.planEnd)}`}>
+                  <DateRangeField
+                    label={t('kt.plan')}
+                    start={draft.milestone ? draft.planEnd : draft.planStart}
+                    end={draft.planEnd}
+                    single={draft.milestone}
+                    placeholder={t('kt.pickStart')}
+                    onChange={(planStart, planEnd) => set({ planStart, planEnd })}
+                  />
+                </Field>
+                <Field label={`${t('kt.actual')} ${days(draft.actualStart, draft.actualEnd)}`}>
+                  <DateRangeField
+                    label={t('kt.actual')}
+                    start={draft.actualStart}
+                    end={draft.actualEnd}
+                    placeholder="—"
+                    onChange={(actualStart, actualEnd) => set({ actualStart, actualEnd })}
+                  />
+                </Field>
+              </div>
               <Field label={`${t('kt.progress')} ${draft.progress}%`}>
                 <div className="flex items-center gap-3">
                   <input
@@ -119,45 +131,49 @@ export function TaskDialog({ row, rows, isNew, onClose, onSave, onDelete, onAddC
                     step={5}
                     value={draft.progress}
                     onChange={(e) => setProgress(Number(e.target.value))}
-                    className="flex-1 accent-[var(--primary)]"
+                    className="h-8 min-w-0 flex-1 accent-[var(--primary)]"
                   />
                   <div className="flex gap-1">
                     {[0, 50, 100].map((p) => (
-                      <Button key={p} type="button" size="sm" variant={draft.progress === p ? 'default' : 'outline'} className="h-8 px-2 tabular-nums" onClick={() => setProgress(p)}>
+                      <Button key={p} type="button" size="sm" variant={draft.progress === p ? 'default' : 'outline'} className="h-8 px-2.5 tabular-nums" onClick={() => setProgress(p)}>
                         {p}
                       </Button>
                     ))}
                   </div>
                 </div>
               </Field>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={draft.milestone} onChange={(e) => set({ milestone: e.target.checked })} className="size-4 accent-[var(--primary)]" />
-                <Diamond className="size-3.5" /> {t('kt.milestone')}
-              </label>
             </>
           )}
 
-          <Field label={t('kt.color')}>
-            <div className="flex flex-wrap gap-1.5">
-              {NOTE_COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  aria-label={c}
-                  aria-pressed={draft.color === c}
-                  onClick={() => set({ color: c })}
-                  className={cn('size-7 rounded-full border outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50', draft.color === c && 'ring-2 ring-primary ring-offset-2 ring-offset-background')}
-                  style={{ background: colorVar(c) }}
-                />
-              ))}
-            </div>
-          </Field>
+          <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+            <Field label={t('kt.color')}>
+              <div className="flex flex-wrap gap-1.5">
+                {NOTE_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    aria-label={c}
+                    aria-pressed={draft.color === c}
+                    onClick={() => set({ color: c })}
+                    className={cn('size-7 rounded-full border outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50', draft.color === c && 'ring-2 ring-primary ring-offset-2 ring-offset-background')}
+                    style={{ background: colorVar(c) }}
+                  />
+                ))}
+              </div>
+            </Field>
+            {!summary && (
+              <label className="flex h-9 items-center gap-2 text-sm">
+                <input type="checkbox" checked={draft.milestone} onChange={(e) => set({ milestone: e.target.checked })} className="size-4 accent-[var(--primary)]" />
+                <Diamond className="size-3.5" /> {t('kt.milestone')}
+              </label>
+            )}
+          </div>
 
           <Field label={t('kt.memo')}>
-            <Textarea rows={3} value={draft.memo} onChange={(e) => set({ memo: e.target.value })} />
+            <Textarea rows={2} value={draft.memo} onChange={(e) => set({ memo: e.target.value })} />
           </Field>
 
-          <DialogFooter className="items-center sm:justify-between">
+          <DialogFooter className="sticky bottom-0 z-10 -mx-6 items-center border-t bg-background px-6 py-3 max-sm:-mx-5 max-sm:px-5 sm:justify-between">
             <div className="flex flex-wrap gap-1">
               {!isNew && (
                 <>
@@ -176,7 +192,7 @@ export function TaskDialog({ row, rows, isNew, onClose, onSave, onDelete, onAddC
                 <Trash2 /> {t('kt.delete')}
               </Button>
             </div>
-            <Button type="submit">{t('kt.save')}</Button>
+            <Button type="submit" className="max-sm:w-full">{t('kt.save')}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -190,27 +206,5 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <span className="font-medium text-muted-foreground">{label}</span>
       {children}
     </label>
-  )
-}
-
-function DateRange({
-  start,
-  end,
-  single,
-  onChange,
-}: {
-  start: string | null
-  end: string | null
-  single?: boolean
-  onChange: (start: string | null, end: string | null) => void
-}) {
-  const cls = 'h-9 min-w-0 flex-1 rounded-md border border-input bg-surface px-2 text-sm tabular-nums outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50'
-  if (single) return <input type="date" className={cls} value={end ?? ''} onChange={(e) => onChange(e.target.value || null, e.target.value || null)} />
-  return (
-    <div className="flex items-center gap-2">
-      <input type="date" className={cls} value={start ?? ''} onChange={(e) => onChange(e.target.value || null, end)} />
-      <span className="text-muted-foreground">~</span>
-      <input type="date" className={cls} value={end ?? ''} onChange={(e) => onChange(start, e.target.value || null)} />
-    </div>
   )
 }
